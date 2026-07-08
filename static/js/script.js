@@ -3,6 +3,7 @@ let previewQuoteId = null;
 let allInvoices = [];
 let invoicePaidFilter = 'unpaid';
 let activeSection = 'invoices';
+let summaryPeriod = 'month';
 
 document.addEventListener('DOMContentLoaded', () => {
   loadClients();
@@ -187,6 +188,87 @@ function switchSection(section) {
   }
   if (btnNewInvoice) btnNewInvoice.classList.toggle('d-none', !isInvoices);
   if (btnNewQuote) btnNewQuote.classList.toggle('d-none', isInvoices);
+  renderSummaryBar();
+}
+
+function switchSummaryPeriod(period) {
+  summaryPeriod = period;
+  setSummaryPeriodUI(period);
+  loadSummary();
+}
+
+function setSummaryPeriodUI(period) {
+  const buttons = {
+    week: document.getElementById('summaryWeekBtn'),
+    month: document.getElementById('summaryMonthBtn'),
+    year: document.getElementById('summaryYearBtn'),
+  };
+  Object.entries(buttons).forEach(([key, btn]) => {
+    if (!btn) return;
+    const active = key === period;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
+let summaryData = null;
+
+async function loadSummary() {
+  const statsEl = document.getElementById('summaryStats');
+  const rangeEl = document.getElementById('summaryRange');
+  if (!statsEl) return;
+  statsEl.innerHTML = '<p class="text-muted mb-0">Loading totals…</p>';
+  try {
+    const response = await apiFetch(`/api/summary?period=${encodeURIComponent(summaryPeriod)}`);
+    if (!response.ok) throw new Error('Failed to load summary');
+    summaryData = await response.json();
+    if (rangeEl) {
+      rangeEl.textContent = `${formatUkDate(summaryData.range_start)} – ${formatUkDate(summaryData.range_end)} · UTC calendar ${summaryData.period}`;
+    }
+    renderSummaryBar();
+  } catch (error) {
+    statsEl.innerHTML = `<p class="text-danger mb-0">${escapeHtml(error.message || 'Failed to load summary')}</p>`;
+  }
+}
+
+function renderSummaryBar() {
+  const statsEl = document.getElementById('summaryStats');
+  if (!statsEl || !summaryData) return;
+
+  if (activeSection === 'quotes') {
+    statsEl.innerHTML = `
+      <div class="summary-stat is-owed">
+        <p class="label">Outstanding quotes</p>
+        <p class="value">£${Number(summaryData.quotes.owed_total).toFixed(2)}</p>
+      </div>
+      <div class="summary-stat is-paid">
+        <p class="label">Paid (via invoice)</p>
+        <p class="value">£${Number(summaryData.quotes.paid_total).toFixed(2)}</p>
+      </div>
+      <div class="summary-stat">
+        <p class="label">Quotes in period</p>
+        <p class="value">${summaryData.quotes.count}</p>
+      </div>`;
+    return;
+  }
+
+  statsEl.innerHTML = `
+    <div class="summary-stat is-owed">
+      <p class="label">Money owed</p>
+      <p class="value">£${Number(summaryData.invoices.owed_total).toFixed(2)}</p>
+    </div>
+    <div class="summary-stat is-paid">
+      <p class="label">Money paid</p>
+      <p class="value">£${Number(summaryData.invoices.paid_total).toFixed(2)}</p>
+    </div>
+    <div class="summary-stat">
+      <p class="label">Invoices in period</p>
+      <p class="value">${summaryData.invoices.count}</p>
+    </div>`;
+}
+
+function refreshSummary() {
+  loadSummary();
 }
 
 function switchInvoiceFilter(filter) {
@@ -212,18 +294,14 @@ function switchInvoiceFilter(filter) {
 function setReportPeriodUI(period) {
   const w = document.getElementById('reportWeekBtn');
   const m = document.getElementById('reportMonthBtn');
-  if (!w || !m) return;
-  if (period === 'week') {
-    w.classList.add('btn-apple-primary');
-    w.classList.remove('btn-apple-secondary');
-    m.classList.add('btn-apple-secondary');
-    m.classList.remove('btn-apple-primary');
-  } else {
-    m.classList.add('btn-apple-primary');
-    m.classList.remove('btn-apple-secondary');
-    w.classList.add('btn-apple-secondary');
-    w.classList.remove('btn-apple-primary');
-  }
+  const y = document.getElementById('reportYearBtn');
+  if (!w || !m || !y) return;
+  w.classList.toggle('btn-apple-primary', period === 'week');
+  w.classList.toggle('btn-apple-secondary', period !== 'week');
+  m.classList.toggle('btn-apple-primary', period === 'month');
+  m.classList.toggle('btn-apple-secondary', period !== 'month');
+  y.classList.toggle('btn-apple-primary', period === 'year');
+  y.classList.toggle('btn-apple-secondary', period !== 'year');
 }
 
 async function loadReport(period) {
@@ -249,13 +327,20 @@ async function loadReport(period) {
       .join('');
     el.innerHTML = `
       <p class="text-muted mb-3" style="font-size: 13px;">${escapeHtml(data.range_start)} – ${escapeHtml(data.range_end)} · UTC calendar ${escapeHtml(data.period)}</p>
+      <h6 class="mb-2">Invoices</h6>
       <div class="reports-summary">
         <div class="reports-stat"><p class="label">Invoices</p><p class="value">${data.invoice_count}</p></div>
-        <div class="reports-stat"><p class="label">Invoiced</p><p class="value">£${Number(data.total_invoiced).toFixed(2)}</p></div>
+        <div class="reports-stat"><p class="label">Owed</p><p class="value">£${Number(data.unpaid_total).toFixed(2)}</p></div>
         <div class="reports-stat"><p class="label">Paid</p><p class="value">£${Number(data.paid_total).toFixed(2)}</p></div>
-        <div class="reports-stat"><p class="label">Unpaid</p><p class="value">£${Number(data.unpaid_total).toFixed(2)}</p></div>
+        <div class="reports-stat"><p class="label">Total invoiced</p><p class="value">£${Number(data.total_invoiced).toFixed(2)}</p></div>
       </div>
-      <div class="table-responsive rounded-3 border" style="border-color: var(--border) !important;">
+      <h6 class="mb-2 mt-3">Quotes</h6>
+      <div class="reports-summary">
+        <div class="reports-stat"><p class="label">Quotes</p><p class="value">${data.quote_count ?? 0}</p></div>
+        <div class="reports-stat"><p class="label">Outstanding</p><p class="value">£${Number(data.quote_owed_total ?? 0).toFixed(2)}</p></div>
+        <div class="reports-stat"><p class="label">Paid (via invoice)</p><p class="value">£${Number(data.quote_paid_total ?? 0).toFixed(2)}</p></div>
+      </div>
+      <div class="table-responsive rounded-3 border mt-3" style="border-color: var(--border) !important;">
         <table class="table table-dark table-striped mb-0" style="--bs-table-bg: transparent;">
           <thead><tr><th>Invoice</th><th>Date</th><th>Client</th><th class="text-end">Total</th><th>Status</th></tr></thead>
           <tbody>${rowsHtml || '<tr><td colspan="5" class="text-muted">No invoices in this period.</td></tr>'}</tbody>
@@ -700,6 +785,8 @@ async function loadInvoices() {
     renderInvoicesList();
   } catch (error) {
     showError('Failed to load invoices: ' + error.message);
+  } finally {
+    loadSummary();
   }
 }
 
@@ -1257,6 +1344,8 @@ async function loadQuotes() {
     });
   } catch (error) {
     showError('Failed to load quotes: ' + error.message);
+  } finally {
+    loadSummary();
   }
 }
 

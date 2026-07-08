@@ -100,6 +100,8 @@ class Quote(db.Model):
     vat_applies = db.Column(db.Boolean, nullable=False, default=False)
     vat_rate_percent = db.Column(db.Float, nullable=True)
     vat_amount = db.Column(db.Float, nullable=False, default=0.0)
+    converted_invoice_id = db.Column(db.Integer, db.ForeignKey("invoice.id"), nullable=True)
+    converted_invoice = db.relationship("Invoice", foreign_keys=[converted_invoice_id])
 
 
 class QuoteItem(db.Model):
@@ -167,6 +169,21 @@ def _ensure_invoice_vat_columns():
         app.logger.warning("Could not ensure invoice VAT columns: %s", e)
 
 
+def _ensure_quote_converted_column():
+    """Add converted_invoice_id to existing deployments."""
+    try:
+        insp = inspect(db.engine)
+        tables = insp.get_table_names()
+        if "quote" not in tables:
+            return
+        cols = {c["name"] for c in insp.get_columns("quote")}
+        if "converted_invoice_id" not in cols:
+            with db.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE quote ADD COLUMN converted_invoice_id INTEGER"))
+    except Exception as e:
+        app.logger.warning("Could not ensure quote converted column: %s", e)
+
+
 def _calendar_week_range(now=None):
     """Monday 00:00 UTC through the following Monday 00:00 UTC (end exclusive)."""
     now = now or datetime.utcnow()
@@ -186,6 +203,69 @@ def _calendar_month_range(now=None):
     else:
         end = start.replace(month=start.month + 1)
     return start, end
+
+
+def _calendar_year_range(now=None):
+    """1 Jan 00:00 UTC through 1 Jan next year (end exclusive)."""
+    now = now or datetime.utcnow()
+    start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    end = start.replace(year=start.year + 1)
+    return start, end
+
+
+def _period_range(period: str):
+    period = (period or "month").strip().lower()
+    if period == "week":
+        return "week", *_calendar_week_range()
+    if period == "year":
+        return "year", *_calendar_year_range()
+    return "month", *_calendar_month_range()
+
+
+def _build_period_summary(start, end):
+    invoices = (
+        Invoice.query.filter(Invoice.date >= start, Invoice.date < end)
+        .order_by(Invoice.date.desc())
+        .all()
+    )
+    paid_total = sum(float(inv.total_amount or 0) for inv in invoices if inv.paid)
+    owed_total = sum(float(inv.total_amount or 0) for inv in invoices if not inv.paid)
+
+    quotes = (
+        Quote.query.filter(Quote.date >= start, Quote.date < end)
+        .order_by(Quote.date.desc())
+        .all()
+    )
+    quote_owed_total = 0.0
+    quote_paid_total = 0.0
+    for quote in quotes:
+        amount = float(quote.total_amount or 0)
+        if quote.converted_invoice_id:
+            inv = quote.converted_invoice or db.session.get(
+                Invoice, quote.converted_invoice_id
+            )
+            if inv and inv.paid:
+                quote_paid_total += amount
+            else:
+                quote_owed_total += amount
+        else:
+            quote_owed_total += amount
+
+    end_inclusive = end - timedelta(seconds=1)
+    return {
+        "range_start": start.strftime("%Y-%m-%d"),
+        "range_end": end_inclusive.strftime("%Y-%m-%d"),
+        "invoices": {
+            "count": len(invoices),
+            "owed_total": round(owed_total, 2),
+            "paid_total": round(paid_total, 2),
+        },
+        "quotes": {
+            "count": len(quotes),
+            "owed_total": round(quote_owed_total, 2),
+            "paid_total": round(quote_paid_total, 2),
+        },
+    }
 
 
 def _net_subtotal_from_items(items):
@@ -463,14 +543,19 @@ def index():
     return render_template("index.html", auth_enabled=_auth_enabled())
 
 
+@app.route("/api/summary")
+def api_summary():
+    period = (request.args.get("period") or "month").strip().lower()
+    period, start, end = _period_range(period)
+    summary = _build_period_summary(start, end)
+    summary["period"] = period
+    return jsonify(summary)
+
+
 @app.route("/api/reports")
 def api_reports():
     period = (request.args.get("period") or "month").strip().lower()
-    if period == "week":
-        start, end = _calendar_week_range()
-    else:
-        period = "month"
-        start, end = _calendar_month_range()
+    period, start, end = _period_range(period)
 
     rows = (
         Invoice.query.filter(Invoice.date >= start, Invoice.date < end)
@@ -482,6 +567,13 @@ def api_reports():
     unpaid_total = total_invoiced - paid_total
     end_inclusive = end - timedelta(seconds=1)
 
+    quote_rows = (
+        Quote.query.filter(Quote.date >= start, Quote.date < end)
+        .order_by(Quote.date.desc())
+        .all()
+    )
+    quote_summary = _build_period_summary(start, end)["quotes"]
+
     return jsonify(
         {
             "period": period,
@@ -491,6 +583,9 @@ def api_reports():
             "total_invoiced": round(total_invoiced, 2),
             "paid_total": round(paid_total, 2),
             "unpaid_total": round(unpaid_total, 2),
+            "quote_count": quote_summary["count"],
+            "quote_owed_total": quote_summary["owed_total"],
+            "quote_paid_total": quote_summary["paid_total"],
             "invoices": [
                 {
                     "id": inv.id,
@@ -1045,6 +1140,8 @@ def convert_quote_to_invoice(quote_id):
     new_invoice.vat_amount = vat_amt if vat_applies else 0.0
     new_invoice.total_amount = gross
     db.session.add(new_invoice)
+    db.session.flush()
+    quote.converted_invoice_id = new_invoice.id
     db.session.commit()
 
     return jsonify(
@@ -1062,6 +1159,7 @@ def convert_quote_to_invoice(quote_id):
 with app.app_context():
     db.create_all()
     _ensure_invoice_vat_columns()
+    _ensure_quote_converted_column()
     _bootstrap_auth_user()
 
 

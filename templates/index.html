@@ -51,6 +51,16 @@
       <button type="button" class="section-tab" id="tabQuotes" role="tab" aria-selected="false" onclick="switchSection('quotes')">Quotes</button>
     </nav>
 
+    <nav class="period-tabs" role="tablist" aria-label="Summary period">
+      <button type="button" class="period-tab" id="summaryWeekBtn" role="tab" aria-selected="false" onclick="switchSummaryPeriod('week')">Week</button>
+      <button type="button" class="period-tab is-active" id="summaryMonthBtn" role="tab" aria-selected="true" onclick="switchSummaryPeriod('month')">Month</button>
+      <button type="button" class="period-tab" id="summaryYearBtn" role="tab" aria-selected="false" onclick="switchSummaryPeriod('year')">Year</button>
+    </nav>
+    <div id="summaryBar" class="summary-bar">
+      <p class="summary-range text-muted" id="summaryRange"></p>
+      <div class="summary-stats" id="summaryStats"></div>
+    </div>
+
     <div id="invoicesSection">
       <div class="page-heading">
         <h1 id="invoicesHeading">Unpaid invoices</h1>
@@ -212,6 +222,7 @@
           <div class="btn-group mb-3" role="group" aria-label="Report period">
             <button type="button" class="btn-apple btn-apple-secondary" id="reportWeekBtn" onclick="loadReport('week')">This week</button>
             <button type="button" class="btn-apple btn-apple-primary" id="reportMonthBtn" onclick="loadReport('month')">This month</button>
+            <button type="button" class="btn-apple btn-apple-secondary" id="reportYearBtn" onclick="loadReport('year')">This year</button>
           </div>
           <div id="reportsContent">
             <p class="text-muted mb-0">Choose a period to load totals and invoice list (calendar week from Monday, calendar month in UTC).</p>
