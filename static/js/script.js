@@ -5,6 +5,20 @@ let invoicePaidFilter = 'unpaid';
 let activeSection = 'invoices';
 let summaryPeriod = 'month';
 
+function companyAddressHtml() {
+  const c = window.APP_COMPANY || {};
+  const lines = Array.isArray(c.address_lines) ? c.address_lines : [];
+  return lines.map((line) => escapeHtml(line)).join('<br>');
+}
+
+function companyBankHtml() {
+  const c = window.APP_COMPANY || {};
+  const name = escapeHtml(c.bank_name || c.name || '');
+  const account = escapeHtml(c.bank_account || '');
+  const sort = escapeHtml(c.bank_sort || '');
+  return `${name}<br>Account ${account}<br>Sort code ${sort}`;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   loadClients();
   loadInvoices();
@@ -562,10 +576,8 @@ function renderInvoicePreviewHtml(invoice) {
             <div class="invoice-header-left">
                 <img src="/static/logo.png" alt="" class="invoice-logo" width="56" height="56">
                 <div class="invoice-from">
-                    <h2>Paul Banning</h2>
-                    <p>48 Pellipar Close<br>
-                    London N13 4AG<br>
-                    07730 556097</p>
+                    <h2>${escapeHtml((window.APP_COMPANY || {}).name || '')}</h2>
+                    <p>${companyAddressHtml()}</p>
                 </div>
             </div>
             <div class="text-end">
@@ -599,12 +611,10 @@ function renderInvoicePreviewHtml(invoice) {
 
         <div class="invoice-terms">
             <h5>Terms &amp; Conditions</h5>
-            <p>Payment is due on receipt of invoice</p>
+            <p>${escapeHtml((window.APP_COMPANY || {}).payment_terms || 'Payment is due on receipt of invoice')}</p>
 
             <h5>Bank details</h5>
-            <p>Paul Banning<br>
-            Account 72113763<br>
-            Sort code 60-83-71</p>
+            <p>${companyBankHtml()}</p>
         </div>
     `;
 }
@@ -1046,10 +1056,8 @@ function renderQuotePreviewHtml(quote) {
             <div class="invoice-header-left">
                 <img src="/static/logo.png" alt="" class="invoice-logo" width="56" height="56">
                 <div class="invoice-from">
-                    <h2>Paul Banning</h2>
-                    <p>48 Pellipar Close<br>
-                    London N13 4AG<br>
-                    07730 556097</p>
+                    <h2>${escapeHtml((window.APP_COMPANY || {}).name || '')}</h2>
+                    <p>${companyAddressHtml()}</p>
                 </div>
             </div>
             <div class="text-end">

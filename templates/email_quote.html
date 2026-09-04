@@ -27,8 +27,8 @@
     <div class="brand">
       <img class="logo" src="{{ logo_url }}" alt="" width="56" height="56">
       <div>
-        <h2>Paul Banning</h2>
-        <p class="muted">48 Pellipar Close, London N13 4AG<br>07730 556097</p>
+        <h2>{{ company.name }}</h2>
+        <p class="muted">{% for line in company.address_lines %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
       </div>
     </div>
     <div class="meta">

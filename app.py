@@ -15,6 +15,36 @@ load_dotenv()
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 
+def _company_config():
+    """Business branding from environment (one codebase, multiple deployments)."""
+    name = (os.environ.get("COMPANY_NAME") or "Paul Banning").strip()
+    raw_address = (
+        os.environ.get("COMPANY_ADDRESS") or "48 Pellipar Close, London N13 4AG"
+    ).strip()
+    phone = (os.environ.get("COMPANY_PHONE") or "07730 556097").strip()
+    address_lines = [
+        line.strip()
+        for line in raw_address.replace("\\n", "\n").split("\n")
+        if line.strip()
+    ]
+    if phone and all(phone not in line for line in address_lines):
+        address_lines.append(phone)
+
+    return {
+        "name": name,
+        "address_lines": address_lines,
+        "phone": phone,
+        "bank_name": (os.environ.get("COMPANY_BANK_ACCOUNT_NAME") or name).strip(),
+        "bank_account": (os.environ.get("COMPANY_BANK_ACCOUNT") or "72113763").strip(),
+        "bank_sort": (os.environ.get("COMPANY_BANK_SORT") or "60-83-71").strip(),
+        "payment_terms": (
+            os.environ.get("COMPANY_PAYMENT_TERMS")
+            or "Payment is due on receipt of invoice"
+        ).strip(),
+        "app_title": (os.environ.get("COMPANY_APP_TITLE") or "Invoices & quotes").strip(),
+    }
+
+
 def _database_uri():
     """Railway Postgres sets DATABASE_URL. Local dev uses SQLite if unset."""
     url = (os.environ.get("DATABASE_URL") or "").strip()
@@ -495,6 +525,11 @@ def generate_quote_number(client: Client) -> str:
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"}), 200
+
+
+@app.context_processor
+def inject_company():
+    return {"company": _company_config()}
 
 
 @app.before_request
