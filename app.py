@@ -15,6 +15,26 @@ load_dotenv()
 basedir = os.path.abspath(os.path.dirname(__file__))
 
 
+def _resolve_company_logo(raw):
+    logo = (raw or "logo.png").strip().replace("\\", "/")
+    if logo.startswith(("http://", "https://")):
+        return logo
+    if logo.startswith("static/"):
+        logo = logo[len("static/") :]
+    if ".." in logo or logo.startswith("/"):
+        return "logo.png"
+    return logo
+
+
+def _company_logo_url(logo_file, request_root=None):
+    if logo_file.startswith(("http://", "https://")):
+        return logo_file
+    path = url_for("static", filename=logo_file)
+    if request_root:
+        return request_root.rstrip("/") + path
+    return path
+
+
 def _company_config():
     """Business branding from environment (one codebase, multiple deployments)."""
     name = (os.environ.get("COMPANY_NAME") or "Paul Banning").strip()
@@ -33,11 +53,7 @@ def _company_config():
     if phone and all(phone not in line for line in address_lines):
         address_lines.append(phone)
 
-    logo_file = (os.environ.get("COMPANY_LOGO") or "logo.png").strip().replace("\\", "/")
-    if logo_file.startswith("static/"):
-        logo_file = logo_file[len("static/") :]
-    if ".." in logo_file or logo_file.startswith("/"):
-        logo_file = "logo.png"
+    logo_file = _resolve_company_logo(os.environ.get("COMPANY_LOGO"))
 
     return {
         "name": name,
@@ -540,7 +556,7 @@ def health():
 @app.context_processor
 def inject_company():
     company = _company_config()
-    company["logo_path"] = url_for("static", filename=company["logo_file"])
+    company["logo_path"] = _company_logo_url(company["logo_file"])
     return {"company": company}
 
 
@@ -870,9 +886,7 @@ def send_invoice_email(invoice_id):
         import resend
 
         resend.api_key = api_key
-        logo_url = request.url_root.rstrip("/") + url_for(
-            "static", filename=_company_config()["logo_file"]
-        )
+        logo_url = _company_logo_url(_company_config()["logo_file"], request.url_root)
         html = render_template(
             "email_invoice.html",
             invoice=invoice,
@@ -1087,9 +1101,7 @@ def send_quote_email(quote_id):
         import resend
 
         resend.api_key = api_key
-        logo_url = request.url_root.rstrip("/") + url_for(
-            "static", filename=_company_config()["logo_file"]
-        )
+        logo_url = _company_logo_url(_company_config()["logo_file"], request.url_root)
         html = render_template(
             "email_quote.html",
             quote=quote,
