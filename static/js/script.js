@@ -574,7 +574,7 @@ function renderInvoicePreviewHtml(invoice) {
   return `
         <div class="invoice-header">
             <div class="invoice-header-left">
-                <img src="/static/logo.png" alt="" class="invoice-logo" width="56" height="56">
+                <img src="${escapeHtml((window.APP_COMPANY || {}).logo_path || '/static/logo.png')}" alt="" class="invoice-logo" width="56" height="56">
                 <div class="invoice-from">
                     <h2>${escapeHtml((window.APP_COMPANY || {}).name || '')}</h2>
                     <p>${companyAddressHtml()}</p>
@@ -1054,7 +1054,7 @@ function renderQuotePreviewHtml(quote) {
   return `
         <div class="invoice-header">
             <div class="invoice-header-left">
-                <img src="/static/logo.png" alt="" class="invoice-logo" width="56" height="56">
+                <img src="${escapeHtml((window.APP_COMPANY || {}).logo_path || '/static/logo.png')}" alt="" class="invoice-logo" width="56" height="56">
                 <div class="invoice-from">
                     <h2>${escapeHtml((window.APP_COMPANY || {}).name || '')}</h2>
                     <p>${companyAddressHtml()}</p>

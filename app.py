@@ -21,7 +21,10 @@ def _company_config():
     raw_address = (
         os.environ.get("COMPANY_ADDRESS") or "48 Pellipar Close, London N13 4AG"
     ).strip()
-    phone = (os.environ.get("COMPANY_PHONE") or "07730 556097").strip()
+    if "COMPANY_PHONE" in os.environ:
+        phone = os.environ.get("COMPANY_PHONE", "").strip()
+    else:
+        phone = "07730 556097"
     address_lines = [
         line.strip()
         for line in raw_address.replace("\\n", "\n").split("\n")
@@ -29,6 +32,12 @@ def _company_config():
     ]
     if phone and all(phone not in line for line in address_lines):
         address_lines.append(phone)
+
+    logo_file = (os.environ.get("COMPANY_LOGO") or "logo.png").strip().replace("\\", "/")
+    if logo_file.startswith("static/"):
+        logo_file = logo_file[len("static/") :]
+    if ".." in logo_file or logo_file.startswith("/"):
+        logo_file = "logo.png"
 
     return {
         "name": name,
@@ -42,6 +51,7 @@ def _company_config():
             or "Payment is due on receipt of invoice"
         ).strip(),
         "app_title": (os.environ.get("COMPANY_APP_TITLE") or "Invoices & quotes").strip(),
+        "logo_file": logo_file,
     }
 
 
@@ -529,7 +539,9 @@ def health():
 
 @app.context_processor
 def inject_company():
-    return {"company": _company_config()}
+    company = _company_config()
+    company["logo_path"] = url_for("static", filename=company["logo_file"])
+    return {"company": company}
 
 
 @app.before_request
@@ -858,7 +870,9 @@ def send_invoice_email(invoice_id):
         import resend
 
         resend.api_key = api_key
-        logo_url = request.url_root.rstrip("/") + url_for("static", filename="logo.png")
+        logo_url = request.url_root.rstrip("/") + url_for(
+            "static", filename=_company_config()["logo_file"]
+        )
         html = render_template(
             "email_invoice.html",
             invoice=invoice,
@@ -1073,7 +1087,9 @@ def send_quote_email(quote_id):
         import resend
 
         resend.api_key = api_key
-        logo_url = request.url_root.rstrip("/") + url_for("static", filename="logo.png")
+        logo_url = request.url_root.rstrip("/") + url_for(
+            "static", filename=_company_config()["logo_file"]
+        )
         html = render_template(
             "email_quote.html",
             quote=quote,
