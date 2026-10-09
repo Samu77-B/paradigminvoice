@@ -165,6 +165,9 @@ def _database_uri():
     if url:
         if url.startswith("postgres://"):
             url = "postgresql://" + url[len("postgres://") :]
+        # Recent SQLAlchemy treats postgresql:// as psycopg v3. This app installs psycopg2.
+        if url.startswith("postgresql://"):
+            url = "postgresql+psycopg2://" + url[len("postgresql://") :]
         return url
     instance_path = os.path.join(basedir, "instance")
     os.makedirs(instance_path, exist_ok=True)
