@@ -158,6 +158,7 @@ body.app-body {
   font-size: 22px;
   font-weight: 650;
   letter-spacing: -0.02em;
+  line-height: 1.25;
 }
 
 .summary-stat.is-owed .value {
@@ -396,6 +397,10 @@ body.app-body {
   margin-bottom: 10px;
 }
 
+.line-item-row-tall {
+  align-items: start;
+}
+
 @media (max-width: 540px) {
   .line-item-row {
     grid-template-columns: 1fr 1fr 44px;
@@ -526,6 +531,26 @@ body.app-body {
     margin-bottom: 18px;
 }
 
+.job-description-field {
+  min-height: 140px;
+  resize: vertical;
+}
+
+.invoice-job-desc {
+  margin-bottom: 18px;
+}
+
+.invoice-job-desc h4 {
+  font-size: 16px;
+  margin-bottom: 10px;
+}
+
+.invoice-job-desc p {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
 .invoice-items {
     width: 100%;
     margin-bottom: 1rem;
@@ -537,6 +562,10 @@ body.app-body {
     padding: 8px;
     text-align: left;
     border: 1px solid #ddd;
+}
+
+.invoice-items td:first-child {
+    white-space: pre-wrap;
 }
 
 .invoice-items th {

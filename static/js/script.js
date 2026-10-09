@@ -19,6 +19,59 @@ function companyBankHtml() {
   return `${name}<br>Account ${account}<br>Sort code ${sort}`;
 }
 
+function currencyMeta(code) {
+  const all = window.APP_CURRENCIES || {};
+  const key = (code || 'GBP').toUpperCase();
+  return all[key] || all.GBP || { code: 'GBP', symbol: '£', label: 'UK £' };
+}
+
+function formatMoney(amount, code) {
+  const symbol = currencyMeta(code).symbol || '£';
+  const n = Number(amount);
+  const value = Number.isFinite(n) ? n.toFixed(2) : '0.00';
+  return `${symbol}${value}`;
+}
+
+function formatTotalsByCurrency(byCurrency, field, fallbackAmount, fallbackCode) {
+  const entries = Object.entries(byCurrency || {});
+  if (!entries.length) {
+    return formatMoney(fallbackAmount ?? 0, fallbackCode || 'GBP');
+  }
+  if (entries.length === 1) {
+    const [code, row] = entries[0];
+    return formatMoney(row[field] ?? 0, code);
+  }
+  return entries.map(([code, row]) => formatMoney(row[field] ?? 0, code)).join('<br>');
+}
+
+function selectedCurrency(id, fallback) {
+  const el = document.getElementById(id);
+  const value = (el?.value || fallback || 'GBP').toUpperCase();
+  return currencyMeta(value).code || 'GBP';
+}
+
+function applyCompany(company) {
+  if (!company) return;
+  window.APP_COMPANY = company;
+  const title = document.querySelector('.app-brand-title');
+  if (title && company.app_title) title.textContent = company.app_title;
+  if (company.app_title) document.title = company.app_title;
+}
+
+function nl2br(text) {
+  return escapeHtml(text || '').replace(/\n/g, '<br>');
+}
+
+function jobDescriptionHtml(text) {
+  const value = (text || '').trim();
+  if (!value) return '';
+  return `
+        <div class="invoice-job-desc">
+            <h4>Job description</h4>
+            <p>${nl2br(value)}</p>
+        </div>`;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   loadClients();
   loadInvoices();
@@ -56,6 +109,8 @@ document.addEventListener('DOMContentLoaded', () => {
       syncInvoiceVatUi();
       const invNum = document.getElementById('invoiceNumber');
       if (invNum) invNum.value = '';
+      const currency = document.getElementById('invoiceCurrency');
+      if (currency) currency.value = 'GBP';
       updateSuggestedInvoiceNumber();
     });
   }
@@ -76,6 +131,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const vatRate = document.getElementById('quoteVatRate');
       if (vatCheck) vatCheck.checked = false;
       if (vatRate) vatRate.value = '20';
+      const currency = document.getElementById('quoteCurrency');
+      if (currency) currency.value = 'GBP';
+      const job = document.getElementById('quoteJobDescription');
+      if (job) job.value = '';
       syncQuoteVatUi();
     });
   }
@@ -84,6 +143,13 @@ document.addEventListener('DOMContentLoaded', () => {
   if (reportsModal) {
     reportsModal.addEventListener('shown.bs.modal', () => {
       loadReport('month');
+    });
+  }
+
+  const settingsModal = document.getElementById('settingsModal');
+  if (settingsModal) {
+    settingsModal.addEventListener('shown.bs.modal', () => {
+      loadSettingsForm();
     });
   }
 });
@@ -112,7 +178,7 @@ function collectLineItems(containerId) {
     return { error: 'Line items not found' };
   }
 
-  const descriptions = Array.from(container.querySelectorAll('input[name="description[]"]')).map(
+  const descriptions = Array.from(container.querySelectorAll('[name="description[]"]')).map(
     (input) => input.value.trim()
   );
   const amounts = Array.from(container.querySelectorAll('input[name="amount[]"]')).map((input) =>
@@ -253,11 +319,11 @@ function renderSummaryBar() {
     statsEl.innerHTML = `
       <div class="summary-stat is-owed">
         <p class="label">Outstanding quotes</p>
-        <p class="value">£${Number(summaryData.quotes.owed_total).toFixed(2)}</p>
+        <p class="value">${formatTotalsByCurrency(summaryData.quotes.by_currency, 'owed_total', summaryData.quotes.owed_total)}</p>
       </div>
       <div class="summary-stat is-paid">
         <p class="label">Paid (via invoice)</p>
-        <p class="value">£${Number(summaryData.quotes.paid_total).toFixed(2)}</p>
+        <p class="value">${formatTotalsByCurrency(summaryData.quotes.by_currency, 'paid_total', summaryData.quotes.paid_total)}</p>
       </div>
       <div class="summary-stat">
         <p class="label">Quotes in period</p>
@@ -269,11 +335,11 @@ function renderSummaryBar() {
   statsEl.innerHTML = `
     <div class="summary-stat is-owed">
       <p class="label">Money owed</p>
-      <p class="value">£${Number(summaryData.invoices.owed_total).toFixed(2)}</p>
+      <p class="value">${formatTotalsByCurrency(summaryData.invoices.by_currency, 'owed_total', summaryData.invoices.owed_total)}</p>
     </div>
     <div class="summary-stat is-paid">
       <p class="label">Money paid</p>
-      <p class="value">£${Number(summaryData.invoices.paid_total).toFixed(2)}</p>
+      <p class="value">${formatTotalsByCurrency(summaryData.invoices.by_currency, 'paid_total', summaryData.invoices.paid_total)}</p>
     </div>
     <div class="summary-stat">
       <p class="label">Invoices in period</p>
@@ -334,7 +400,7 @@ async function loadReport(period) {
         <td>${escapeHtml(inv.invoice_number)}</td>
         <td>${escapeHtml(formatUkDate(inv.date))}</td>
         <td>${escapeHtml(inv.client_name)}</td>
-        <td class="text-end">£${Number(inv.total_amount).toFixed(2)}</td>
+        <td class="text-end">${formatMoney(inv.total_amount, inv.currency)}</td>
         <td>${inv.paid ? '<span class="text-success">Paid</span>' : '<span class="text-warning">Unpaid</span>'}</td>
       </tr>`
       )
@@ -344,15 +410,24 @@ async function loadReport(period) {
       <h6 class="mb-2">Invoices</h6>
       <div class="reports-summary">
         <div class="reports-stat"><p class="label">Invoices</p><p class="value">${data.invoice_count}</p></div>
-        <div class="reports-stat"><p class="label">Owed</p><p class="value">£${Number(data.unpaid_total).toFixed(2)}</p></div>
-        <div class="reports-stat"><p class="label">Paid</p><p class="value">£${Number(data.paid_total).toFixed(2)}</p></div>
-        <div class="reports-stat"><p class="label">Total invoiced</p><p class="value">£${Number(data.total_invoiced).toFixed(2)}</p></div>
+        <div class="reports-stat"><p class="label">Owed</p><p class="value">${formatTotalsByCurrency(data.invoices_by_currency, 'owed_total', data.unpaid_total)}</p></div>
+        <div class="reports-stat"><p class="label">Paid</p><p class="value">${formatTotalsByCurrency(data.invoices_by_currency, 'paid_total', data.paid_total)}</p></div>
+        <div class="reports-stat"><p class="label">Total invoiced</p><p class="value">${formatTotalsByCurrency(
+          Object.fromEntries(
+            Object.entries(data.invoices_by_currency || {}).map(([code, row]) => [
+              code,
+              { total: (Number(row.owed_total) || 0) + (Number(row.paid_total) || 0) },
+            ])
+          ),
+          'total',
+          data.total_invoiced
+        )}</p></div>
       </div>
       <h6 class="mb-2 mt-3">Quotes</h6>
       <div class="reports-summary">
         <div class="reports-stat"><p class="label">Quotes</p><p class="value">${data.quote_count ?? 0}</p></div>
-        <div class="reports-stat"><p class="label">Outstanding</p><p class="value">£${Number(data.quote_owed_total ?? 0).toFixed(2)}</p></div>
-        <div class="reports-stat"><p class="label">Paid (via invoice)</p><p class="value">£${Number(data.quote_paid_total ?? 0).toFixed(2)}</p></div>
+        <div class="reports-stat"><p class="label">Outstanding</p><p class="value">${formatTotalsByCurrency(data.quotes_by_currency, 'owed_total', data.quote_owed_total)}</p></div>
+        <div class="reports-stat"><p class="label">Paid (via invoice)</p><p class="value">${formatTotalsByCurrency(data.quotes_by_currency, 'paid_total', data.quote_paid_total)}</p></div>
       </div>
       <div class="table-responsive rounded-3 border mt-3" style="border-color: var(--border) !important;">
         <table class="table table-dark table-striped mb-0" style="--bs-table-bg: transparent;">
@@ -447,6 +522,70 @@ async function saveClient() {
   }
 }
 
+function fillSettingsForm(company) {
+  const set = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.value = value || '';
+  };
+  set('settingsName', company.name);
+  set('settingsAppTitle', company.app_title);
+  set('settingsAddress', company.address);
+  set('settingsPhone', company.phone);
+  set('settingsBankName', company.bank_name);
+  set('settingsBankAccount', company.bank_account);
+  set('settingsBankSort', company.bank_sort);
+  set('settingsPaymentTerms', company.payment_terms);
+}
+
+async function loadSettingsForm() {
+  try {
+    const response = await apiFetch('/api/settings');
+    if (!response.ok) throw new Error('Failed to load details');
+    const company = await response.json();
+    applyCompany(company);
+    fillSettingsForm(company);
+  } catch (error) {
+    fillSettingsForm(window.APP_COMPANY || {});
+    showError('Could not load saved details: ' + error.message);
+  }
+}
+
+async function saveSettings() {
+  try {
+    const form = document.getElementById('settingsForm');
+    if (form && !form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+    const payload = {
+      name: document.getElementById('settingsName')?.value.trim() || '',
+      app_title: document.getElementById('settingsAppTitle')?.value.trim() || '',
+      address: document.getElementById('settingsAddress')?.value.trim() || '',
+      phone: document.getElementById('settingsPhone')?.value.trim() || '',
+      bank_name: document.getElementById('settingsBankName')?.value.trim() || '',
+      bank_account: document.getElementById('settingsBankAccount')?.value.trim() || '',
+      bank_sort: document.getElementById('settingsBankSort')?.value.trim() || '',
+      payment_terms: document.getElementById('settingsPaymentTerms')?.value.trim() || '',
+    };
+    if (!payload.name) {
+      showError('Business name is required');
+      return;
+    }
+    const response = await apiFetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Failed to save details');
+    applyCompany(data);
+    showSuccess('Your details have been saved');
+    bootstrap.Modal.getInstance(document.getElementById('settingsModal'))?.hide();
+  } catch (error) {
+    showError('Failed to save details: ' + error.message);
+  }
+}
+
 function addInvoiceItem() {
   const container = document.getElementById('invoiceItems');
   const newItem = document.createElement('div');
@@ -506,6 +645,7 @@ async function saveInvoice() {
       items,
       vat_applies: vatApplies,
       vat_rate_percent: vatRatePercent,
+      currency: selectedCurrency('invoiceCurrency'),
     };
     if (invoiceNumber) {
       payload.invoice_number = invoiceNumber;
@@ -539,13 +679,14 @@ function renderInvoicePreviewHtml(invoice) {
   const billToLines = [escapeHtml(invoice.client.name)];
   if (addr) billToLines.push(escapeHtml(addr).replace(/\n/g, '<br>'));
   billToLines.push(`<span class="text-muted">${escapeHtml(invoice.client.email)}</span>`);
+  const currency = invoice.currency || 'GBP';
 
   const rows = invoice.items
     .map(
       (item) => `
                     <tr>
-                        <td>${escapeHtml(item.description)}</td>
-                        <td class="text-end">£${Number(item.amount).toFixed(2)}</td>
+                        <td>${nl2br(item.description)}</td>
+                        <td class="text-end">${formatMoney(item.amount, currency)}</td>
                     </tr>`
     )
     .join('');
@@ -560,13 +701,13 @@ function renderInvoicePreviewHtml(invoice) {
     ? `
                 <tr>
                     <td class="text-end" style="border-left: none; border-bottom: none;">Subtotal (net)</td>
-                    <td class="text-end">£${subtotal.toFixed(2)}</td>
+                    <td class="text-end">${formatMoney(subtotal, currency)}</td>
                 </tr>
                 <tr>
                     <td class="text-end" style="border-left: none; border-bottom: none;">VAT (${Number(
                       invoice.vat_rate_percent ?? 20
                     ).toFixed(2)}%)</td>
-                    <td class="text-end">£${Number(invoice.vat_amount || 0).toFixed(2)}</td>
+                    <td class="text-end">${formatMoney(invoice.vat_amount || 0, currency)}</td>
                 </tr>`
     : '';
   const totalLabel = vatApplies ? 'Total due' : 'Total';
@@ -591,6 +732,7 @@ function renderInvoicePreviewHtml(invoice) {
             <h4>Bill To</h4>
             <p>${billToLines.join('<br>')}</p>
         </div>
+        ${jobDescriptionHtml(invoice.job_description)}
 
         <table class="invoice-items">
             <thead>
@@ -604,7 +746,7 @@ function renderInvoicePreviewHtml(invoice) {
                 ${vatRows}
                 <tr>
                     <td class="text-end" style="border-left: none; border-bottom: none;"><strong>${totalLabel}</strong></td>
-                    <td class="text-end"><strong>£${Number(invoice.total_amount).toFixed(2)}</strong></td>
+                    <td class="text-end"><strong>${formatMoney(invoice.total_amount, currency)}</strong></td>
                 </tr>
             </tbody>
         </table>
@@ -650,6 +792,10 @@ async function openEditInvoice(invoiceId) {
     form.querySelector('input[name="invoice_id"]').value = invoice.id;
     form.querySelector('input[name="invoice_number"]').value = invoice.invoice_number;
     form.querySelector('input[name="client_name"]').value = invoice.client.name;
+    const currencySelect = document.getElementById('editInvoiceCurrency');
+    if (currencySelect) currencySelect.value = invoice.currency || 'GBP';
+    const job = document.getElementById('editInvoiceJobDescription');
+    if (job) job.value = invoice.job_description || '';
 
     const itemsContainer = document.getElementById('editInvoiceItems');
     itemsContainer.innerHTML = `
@@ -658,7 +804,7 @@ async function openEditInvoice(invoiceId) {
                     <label class="form-label">Description</label>
                 </div>
                 <div class="col-4">
-                    <label class="form-label">Amount (£)</label>
+                    <label class="form-label">Amount</label>
                 </div>
             </div>
         `;
@@ -734,6 +880,8 @@ async function updateInvoice() {
         invoice_number: invoiceNumber,
         vat_applies: vatApplies,
         vat_rate_percent: vatRatePercent,
+        currency: selectedCurrency('editInvoiceCurrency'),
+        job_description: document.getElementById('editInvoiceJobDescription')?.value || '',
       }),
     });
 
@@ -824,12 +972,13 @@ function renderInvoicesList() {
                     <p class="invoice-card-meta">Date: ${escapeHtml(formatUkDate(invoice.date))}</p>
                     ${
                       invoice.vat_applies
-                        ? `<p class="invoice-card-vat">VAT ${Number(invoice.vat_rate_percent ?? 20).toFixed(2)}% · Net £${Number(
-                            invoice.subtotal_net ?? 0
-                          ).toFixed(2)}</p>`
+                        ? `<p class="invoice-card-vat">VAT ${Number(invoice.vat_rate_percent ?? 20).toFixed(2)}% · Net ${formatMoney(
+                            invoice.subtotal_net ?? 0,
+                            invoice.currency
+                          )}</p>`
                         : ''
                     }
-                    <p class="invoice-card-amount">£${Number(invoice.total_amount).toFixed(2)}</p>
+                    <p class="invoice-card-amount">${formatMoney(invoice.total_amount, invoice.currency)}</p>
                 </div>
                 <div class="invoice-card-actions">
                     <button type="button" class="btn-apple-icon" title="Preview" aria-label="Preview" onclick="openInvoicePreview(${invoice.id})">
@@ -938,10 +1087,10 @@ function savePDF() {
 function addQuoteItem() {
   const container = document.getElementById('quoteItems');
   const newItem = document.createElement('div');
-  newItem.className = 'line-item-row';
+  newItem.className = 'line-item-row line-item-row-tall';
   newItem.innerHTML = `
         <div class="line-item-desc">
-          <input type="text" class="form-control" name="description[]" placeholder="Description" required>
+          <textarea class="form-control" name="description[]" rows="2" placeholder="Line description" required></textarea>
         </div>
         <div class="line-item-amt">
           <input type="number" step="0.01" class="form-control" name="amount[]" placeholder="0.00" required>
@@ -967,7 +1116,7 @@ async function saveQuote() {
       return;
     }
 
-    const descriptions = Array.from(form.querySelectorAll('#quoteItems input[name="description[]"]')).map((input) => input.value);
+    const descriptions = Array.from(form.querySelectorAll('#quoteItems [name="description[]"]')).map((input) => input.value);
     const amounts = Array.from(form.querySelectorAll('#quoteItems input[name="amount[]"]')).map((input) => parseFloat(input.value));
 
     if (descriptions.length === 0) {
@@ -996,6 +1145,8 @@ async function saveQuote() {
         items,
         vat_applies: vatApplies,
         vat_rate_percent: vatRatePercent,
+        currency: selectedCurrency('quoteCurrency'),
+        job_description: document.getElementById('quoteJobDescription')?.value || '',
       }),
     });
 
@@ -1019,13 +1170,14 @@ function renderQuotePreviewHtml(quote) {
   const billToLines = [escapeHtml(quote.client.name)];
   if (addr) billToLines.push(escapeHtml(addr).replace(/\n/g, '<br>'));
   billToLines.push(`<span class="text-muted">${escapeHtml(quote.client.email)}</span>`);
+  const currency = quote.currency || 'GBP';
 
   const rows = quote.items
     .map(
       (item) => `
                     <tr>
-                        <td>${escapeHtml(item.description)}</td>
-                        <td class="text-end">£${Number(item.amount).toFixed(2)}</td>
+                        <td>${nl2br(item.description)}</td>
+                        <td class="text-end">${formatMoney(item.amount, currency)}</td>
                     </tr>`
     )
     .join('');
@@ -1040,13 +1192,13 @@ function renderQuotePreviewHtml(quote) {
     ? `
                 <tr>
                     <td class="text-end" style="border-left: none; border-bottom: none;">Subtotal (net)</td>
-                    <td class="text-end">£${subtotal.toFixed(2)}</td>
+                    <td class="text-end">${formatMoney(subtotal, currency)}</td>
                 </tr>
                 <tr>
                     <td class="text-end" style="border-left: none; border-bottom: none;">VAT (${Number(
                       quote.vat_rate_percent ?? 20
                     ).toFixed(2)}%)</td>
-                    <td class="text-end">£${Number(quote.vat_amount || 0).toFixed(2)}</td>
+                    <td class="text-end">${formatMoney(quote.vat_amount || 0, currency)}</td>
                 </tr>`
     : '';
   const totalLabel = vatApplies ? 'Total quoted' : 'Total';
@@ -1071,6 +1223,7 @@ function renderQuotePreviewHtml(quote) {
             <h4>Prepared for</h4>
             <p>${billToLines.join('<br>')}</p>
         </div>
+        ${jobDescriptionHtml(quote.job_description)}
 
         <table class="invoice-items">
             <thead>
@@ -1084,7 +1237,7 @@ function renderQuotePreviewHtml(quote) {
                 ${vatRows}
                 <tr>
                     <td class="text-end" style="border-left: none; border-bottom: none;"><strong>${totalLabel}</strong></td>
-                    <td class="text-end"><strong>£${Number(quote.total_amount).toFixed(2)}</strong></td>
+                    <td class="text-end"><strong>${formatMoney(quote.total_amount, currency)}</strong></td>
                 </tr>
             </tbody>
         </table>
@@ -1128,6 +1281,10 @@ async function openEditQuote(quoteId) {
     form.querySelector('input[name="quote_id"]').value = quote.id;
     form.querySelector('input[name="quote_number"]').value = quote.quote_number;
     form.querySelector('input[name="client_name"]').value = quote.client.name;
+    const currencySelect = document.getElementById('editQuoteCurrency');
+    if (currencySelect) currencySelect.value = quote.currency || 'GBP';
+    const job = document.getElementById('editQuoteJobDescription');
+    if (job) job.value = quote.job_description || '';
 
     const itemsContainer = document.getElementById('editQuoteItems');
     itemsContainer.innerHTML = `
@@ -1136,7 +1293,7 @@ async function openEditQuote(quoteId) {
                     <label class="form-label">Description</label>
                 </div>
                 <div class="col-4">
-                    <label class="form-label">Amount (£)</label>
+                    <label class="form-label">Amount</label>
                 </div>
             </div>
         `;
@@ -1164,10 +1321,10 @@ async function openEditQuote(quoteId) {
 function addEditQuoteItem(item = null) {
   const container = document.getElementById('editQuoteItems');
   const newItem = document.createElement('div');
-  newItem.className = 'line-item-row';
+  newItem.className = 'line-item-row line-item-row-tall';
   newItem.innerHTML = `
         <div class="line-item-desc">
-          <input type="text" class="form-control" name="description[]" placeholder="Description" required>
+          <textarea class="form-control" name="description[]" rows="2" placeholder="Line description" required></textarea>
         </div>
         <div class="line-item-amt">
           <input type="number" step="0.01" class="form-control" name="amount[]" placeholder="0.00" required>
@@ -1176,7 +1333,7 @@ function addEditQuoteItem(item = null) {
           <button type="button" class="btn-remove-line" aria-label="Remove line" onclick="removeLineItemRow(this)">×</button>
         </div>
     `;
-  const descInput = newItem.querySelector('input[name="description[]"]');
+  const descInput = newItem.querySelector('[name="description[]"]');
   const amtInput = newItem.querySelector('input[name="amount[]"]');
   if (item) {
     descInput.value = item.description;
@@ -1212,6 +1369,8 @@ async function updateQuote() {
         quote_number: quoteNumber,
         vat_applies: vatApplies,
         vat_rate_percent: vatRatePercent,
+        currency: selectedCurrency('editQuoteCurrency'),
+        job_description: document.getElementById('editQuoteJobDescription')?.value || '',
       }),
     });
 
@@ -1323,12 +1482,13 @@ async function loadQuotes() {
                     <p class="invoice-card-meta">Date: ${escapeHtml(formatUkDate(quote.date))}</p>
                     ${
                       quote.vat_applies
-                        ? `<p class="invoice-card-vat">VAT ${Number(quote.vat_rate_percent ?? 20).toFixed(2)}% · Net £${Number(
-                            quote.subtotal_net ?? 0
-                          ).toFixed(2)}</p>`
+                        ? `<p class="invoice-card-vat">VAT ${Number(quote.vat_rate_percent ?? 20).toFixed(2)}% · Net ${formatMoney(
+                            quote.subtotal_net ?? 0,
+                            quote.currency
+                          )}</p>`
                         : ''
                     }
-                    <p class="invoice-card-amount">£${Number(quote.total_amount).toFixed(2)}</p>
+                    <p class="invoice-card-amount">${formatMoney(quote.total_amount, quote.currency)}</p>
                 </div>
                 <div class="invoice-card-actions">
                     <button type="button" class="btn-apple-icon" title="Preview" aria-label="Preview" onclick="openQuotePreview(${quote.id})">

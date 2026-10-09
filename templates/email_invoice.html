@@ -20,6 +20,7 @@
     .footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid #e5e5e5; font-size: 13px; }
     .muted { color: #555; }
     .note { margin: 0 0 20px 0; padding: 12px 14px; background: #f7f7f7; border: 1px solid #e5e5e5; border-radius: 8px; white-space: pre-wrap; }
+    .job-desc { margin: 0 0 16px 0; white-space: pre-wrap; }
   </style>
 </head>
 <body>
@@ -47,6 +48,11 @@
   {% if invoice.client.address %}{{ invoice.client.address }}<br>{% endif %}
   <span class="muted">{{ invoice.client.email }}</span></p>
 
+  {% if invoice.job_description %}
+  <p><strong>Job description</strong></p>
+  <p class="job-desc">{{ invoice.job_description }}</p>
+  {% endif %}
+
   <table>
     <thead>
       <tr><th>Description</th><th class="amt">{% if invoice.vat_applies %}Amount (net){% else %}Amount{% endif %}</th></tr>
@@ -55,22 +61,22 @@
       {% for item in invoice.items %}
       <tr>
         <td>{{ item.description }}</td>
-        <td class="amt">&pound;{{ '%.2f'|format(item.amount) }}</td>
+        <td class="amt">{{ currency_symbol }}{{ '%.2f'|format(item.amount) }}</td>
       </tr>
       {% endfor %}
       {% if invoice.vat_applies %}
       <tr>
         <td>Subtotal (net)</td>
-        <td class="amt">&pound;{{ '%.2f'|format(subtotal_net) }}</td>
+        <td class="amt">{{ currency_symbol }}{{ '%.2f'|format(subtotal_net) }}</td>
       </tr>
       <tr>
         <td>VAT ({{ '%.2f'|format(invoice.vat_rate_percent or 0) }}%)</td>
-        <td class="amt">&pound;{{ '%.2f'|format(invoice.vat_amount or 0) }}</td>
+        <td class="amt">{{ currency_symbol }}{{ '%.2f'|format(invoice.vat_amount or 0) }}</td>
       </tr>
       {% endif %}
       <tr class="total">
         <td>{% if invoice.vat_applies %}Total due{% else %}Total{% endif %}</td>
-        <td class="amt">&pound;{{ '%.2f'|format(invoice.total_amount) }}</td>
+        <td class="amt">{{ currency_symbol }}{{ '%.2f'|format(invoice.total_amount) }}</td>
       </tr>
     </tbody>
   </table>

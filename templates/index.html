@@ -19,6 +19,10 @@
         <p class="app-brand-sub">Clients, invoices, quotes, and email sending</p>
       </div>
       <div class="app-actions">
+        <button type="button" class="btn-apple btn-apple-secondary" data-bs-toggle="modal" data-bs-target="#settingsModal">
+          <i class="fas fa-gear"></i>
+          <span>My details</span>
+        </button>
         <button type="button" class="btn-apple btn-apple-secondary" data-bs-toggle="modal" data-bs-target="#reportsModal">
           <i class="fas fa-chart-column"></i>
           <span>Reports</span>
@@ -136,6 +140,14 @@
               <input type="text" class="form-control" id="invoiceNumber" name="invoice_number" placeholder="Leave blank to auto-generate" autocomplete="off">
               <div class="form-text text-muted" id="invoiceNumberHint">Pick a client to see the next number, or enter your own (e.g. TOX200).</div>
             </div>
+            <div class="mb-3">
+              <label class="form-label" for="invoiceCurrency">Currency</label>
+              <select class="form-select" id="invoiceCurrency" name="currency" title="Currency">
+                {% for code, meta in currencies.items() %}
+                <option value="{{ code }}">{{ meta.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
             <label class="form-label">Line items</label>
             <div id="invoiceItems"></div>
             <button type="button" class="btn-apple btn-apple-ghost mt-2" onclick="addInvoiceItem()">
@@ -145,7 +157,7 @@
             <div class="mt-3 p-3 rounded-3 border border-secondary-subtle" style="border-color: var(--border) !important; background: var(--card-2);">
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="invoiceVatApplies" name="vat_applies">
-                <label class="form-check-label" for="invoiceVatApplies">Add UK VAT — line amounts are <strong>net</strong> (excluding VAT)</label>
+                <label class="form-check-label" for="invoiceVatApplies">Add VAT — line amounts are <strong>net</strong> (excluding VAT)</label>
               </div>
               <div class="row mt-2 align-items-end" id="invoiceVatRateWrap" style="display: none;">
                 <div class="col-sm-4">
@@ -181,6 +193,18 @@
                 <option value="">Select a client…</option>
               </select>
             </div>
+            <div class="mb-3">
+              <label class="form-label" for="quoteCurrency">Currency</label>
+              <select class="form-select" id="quoteCurrency" name="currency" title="Currency">
+                {% for code, meta in currencies.items() %}
+                <option value="{{ code }}">{{ meta.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="quoteJobDescription">Job description</label>
+              <textarea class="form-control job-description-field" id="quoteJobDescription" name="job_description" rows="6" maxlength="8000" placeholder="Describe the work, materials, access, and any notes for the client…"></textarea>
+            </div>
             <label class="form-label">Line items</label>
             <div id="quoteItems"></div>
             <button type="button" class="btn-apple btn-apple-ghost mt-2" onclick="addQuoteItem()">
@@ -190,7 +214,7 @@
             <div class="mt-3 p-3 rounded-3 border border-secondary-subtle" style="border-color: var(--border) !important; background: var(--card-2);">
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="quoteVatApplies" name="vat_applies">
-                <label class="form-check-label" for="quoteVatApplies">Add UK VAT — line amounts are <strong>net</strong> (excluding VAT)</label>
+                <label class="form-check-label" for="quoteVatApplies">Add VAT — line amounts are <strong>net</strong> (excluding VAT)</label>
               </div>
               <div class="row mt-2 align-items-end" id="quoteVatRateWrap" style="display: none;">
                 <div class="col-sm-4">
@@ -323,6 +347,18 @@
                 <input type="text" class="form-control" name="client_name" readonly title="Client">
               </div>
             </div>
+            <div class="mb-3">
+              <label class="form-label" for="editInvoiceCurrency">Currency</label>
+              <select class="form-select" id="editInvoiceCurrency" name="currency" title="Currency">
+                {% for code, meta in currencies.items() %}
+                <option value="{{ code }}">{{ meta.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="editInvoiceJobDescription">Job description</label>
+              <textarea class="form-control job-description-field" id="editInvoiceJobDescription" name="job_description" rows="5" maxlength="8000" placeholder="Optional job notes"></textarea>
+            </div>
             <div id="editInvoiceItems"></div>
             <button type="button" class="btn-apple btn-apple-ghost mt-2" onclick="addEditInvoiceItem()">
               <i class="fas fa-plus"></i>
@@ -331,7 +367,7 @@
             <div class="mt-3 p-3 rounded-3 border border-secondary-subtle" style="border-color: var(--border) !important; background: var(--card-2);">
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="editInvoiceVatApplies" name="edit_vat_applies">
-                <label class="form-check-label" for="editInvoiceVatApplies">Add UK VAT — line amounts are net (excluding VAT)</label>
+                <label class="form-check-label" for="editInvoiceVatApplies">Add VAT — line amounts are net (excluding VAT)</label>
               </div>
               <div class="row mt-2 align-items-end" id="editInvoiceVatRateWrap" style="display: none;">
                 <div class="col-sm-4">
@@ -372,6 +408,18 @@
                 <input type="text" class="form-control" name="client_name" readonly title="Client">
               </div>
             </div>
+            <div class="mb-3">
+              <label class="form-label" for="editQuoteCurrency">Currency</label>
+              <select class="form-select" id="editQuoteCurrency" name="currency" title="Currency">
+                {% for code, meta in currencies.items() %}
+                <option value="{{ code }}">{{ meta.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="editQuoteJobDescription">Job description</label>
+              <textarea class="form-control job-description-field" id="editQuoteJobDescription" name="job_description" rows="6" maxlength="8000" placeholder="Describe the work, materials, access, and any notes for the client…"></textarea>
+            </div>
             <div id="editQuoteItems"></div>
             <button type="button" class="btn-apple btn-apple-ghost mt-2" onclick="addEditQuoteItem()">
               <i class="fas fa-plus"></i>
@@ -380,7 +428,7 @@
             <div class="mt-3 p-3 rounded-3 border border-secondary-subtle" style="border-color: var(--border) !important; background: var(--card-2);">
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="editQuoteVatApplies" name="edit_vat_applies">
-                <label class="form-check-label" for="editQuoteVatApplies">Add UK VAT — line amounts are net (excluding VAT)</label>
+                <label class="form-check-label" for="editQuoteVatApplies">Add VAT — line amounts are net (excluding VAT)</label>
               </div>
               <div class="row mt-2 align-items-end" id="editQuoteVatRateWrap" style="display: none;">
                 <div class="col-sm-4">
@@ -400,10 +448,68 @@
     </div>
   </div>
 
+  <!-- My details / company settings -->
+  <div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="settingsModalLabel">My details</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <form id="settingsForm" onsubmit="event.preventDefault(); saveSettings();">
+            <div class="mb-3">
+              <label class="form-label" for="settingsName">Business name</label>
+              <input type="text" class="form-control" id="settingsName" name="name" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="settingsAppTitle">App title</label>
+              <input type="text" class="form-control" id="settingsAppTitle" name="app_title" placeholder="Invoices & quotes">
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="settingsAddress">Address</label>
+              <textarea class="form-control" id="settingsAddress" name="address" rows="4" placeholder="Street, town, postcode"></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="settingsPhone">Phone</label>
+              <input type="text" class="form-control" id="settingsPhone" name="phone">
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="settingsBankName">Bank account name</label>
+              <input type="text" class="form-control" id="settingsBankName" name="bank_name">
+            </div>
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label class="form-label" for="settingsBankAccount">Account number</label>
+                <input type="text" class="form-control" id="settingsBankAccount" name="bank_account">
+              </div>
+              <div class="col-md-6 mb-3">
+                <label class="form-label" for="settingsBankSort">Sort code</label>
+                <input type="text" class="form-control" id="settingsBankSort" name="bank_sort">
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="settingsPaymentTerms">Payment terms</label>
+              <textarea class="form-control" id="settingsPaymentTerms" name="payment_terms" rows="2"></textarea>
+            </div>
+            <button type="submit" class="visually-hidden">Submit</button>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-apple btn-apple-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn-apple btn-apple-primary" onclick="saveSettings()">Save details</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
           integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
           crossorigin="anonymous"></script>
-  <script>window.APP_COMPANY = {{ company | tojson }};</script>
+  <script>
+    window.APP_COMPANY = {{ company | tojson }};
+    window.APP_CURRENCIES = {{ currencies | tojson }};
+  </script>
   <script src="{{ url_for('static', filename='js/script.js') }}"></script>
 </body>
 </html>

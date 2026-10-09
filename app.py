@@ -4,6 +4,7 @@ from flask_migrate import Migrate
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
+from collections import defaultdict
 from sqlalchemy import inspect, text
 import os
 import re
@@ -35,8 +36,47 @@ def _company_logo_url(logo_file, request_root=None):
     return path
 
 
-def _company_config():
-    """Business branding from environment (one codebase, multiple deployments)."""
+CURRENCIES = {
+    "GBP": {"code": "GBP", "symbol": "£", "label": "UK £"},
+    "USD": {"code": "USD", "symbol": "US$", "label": "US $"},
+    "JMD": {"code": "JMD", "symbol": "J$", "label": "Jamaican $"},
+    "EUR": {"code": "EUR", "symbol": "€", "label": "Euro"},
+}
+DEFAULT_CURRENCY = "GBP"
+JOB_DESCRIPTION_MAX = 8000
+
+
+def _currency_meta(code):
+    key = (code or DEFAULT_CURRENCY).strip().upper()
+    return CURRENCIES.get(key, CURRENCIES[DEFAULT_CURRENCY])
+
+
+def _currency_symbol(code):
+    return _currency_meta(code)["symbol"]
+
+
+def _parse_currency(data: dict):
+    raw = data.get("currency")
+    if raw is None or str(raw).strip() == "":
+        return DEFAULT_CURRENCY, None
+    code = str(raw).strip().upper()
+    if code not in CURRENCIES:
+        return None, "Unsupported currency"
+    return code, None
+
+
+def _parse_job_description(data: dict, required_key=False):
+    if "job_description" not in data:
+        if required_key:
+            return "", None
+        return None, None
+    text = str(data.get("job_description") or "").strip()
+    if len(text) > JOB_DESCRIPTION_MAX:
+        text = text[:JOB_DESCRIPTION_MAX]
+    return text, None
+
+
+def _env_company_defaults():
     name = (os.environ.get("COMPANY_NAME") or "Paul Banning").strip()
     raw_address = (
         os.environ.get("COMPANY_ADDRESS") or "48 Pellipar Close, London N13 4AG"
@@ -45,19 +85,9 @@ def _company_config():
         phone = os.environ.get("COMPANY_PHONE", "").strip()
     else:
         phone = "07730 556097"
-    address_lines = [
-        line.strip()
-        for line in raw_address.replace("\\n", "\n").split("\n")
-        if line.strip()
-    ]
-    if phone and all(phone not in line for line in address_lines):
-        address_lines.append(phone)
-
-    logo_file = _resolve_company_logo(os.environ.get("COMPANY_LOGO"))
-
     return {
         "name": name,
-        "address_lines": address_lines,
+        "address": raw_address,
         "phone": phone,
         "bank_name": (os.environ.get("COMPANY_BANK_ACCOUNT_NAME") or name).strip(),
         "bank_account": (os.environ.get("COMPANY_BANK_ACCOUNT") or "72113763").strip(),
@@ -67,8 +97,66 @@ def _company_config():
             or "Payment is due on receipt of invoice"
         ).strip(),
         "app_title": (os.environ.get("COMPANY_APP_TITLE") or "Invoices & quotes").strip(),
-        "logo_file": logo_file,
+        "logo_file": _resolve_company_logo(os.environ.get("COMPANY_LOGO")),
     }
+
+
+def _finalize_company(raw):
+    name = (raw.get("name") or "Paul Banning").strip() or "Paul Banning"
+    address = (raw.get("address") or "").strip()
+    phone = (raw.get("phone") or "").strip()
+    address_lines = [
+        line.strip()
+        for line in address.replace("\\n", "\n").split("\n")
+        if line.strip()
+    ]
+    if phone and all(phone not in line for line in address_lines):
+        address_lines.append(phone)
+    return {
+        "name": name,
+        "address": address,
+        "address_lines": address_lines,
+        "phone": phone,
+        "bank_name": (raw.get("bank_name") or name).strip() or name,
+        "bank_account": (raw.get("bank_account") or "").strip(),
+        "bank_sort": (raw.get("bank_sort") or "").strip(),
+        "payment_terms": (
+            raw.get("payment_terms") or "Payment is due on receipt of invoice"
+        ).strip(),
+        "app_title": (raw.get("app_title") or "Invoices & quotes").strip(),
+        "logo_file": raw.get("logo_file") or "logo.png",
+    }
+
+
+def _company_config():
+    """Business branding from saved settings, falling back to environment defaults."""
+    defaults = _env_company_defaults()
+    row = None
+    try:
+        row = CompanySettings.query.order_by(CompanySettings.id.asc()).first()
+    except Exception:
+        row = None
+    if not row:
+        return _finalize_company(defaults)
+
+    merged = dict(defaults)
+    if row.name is not None:
+        merged["name"] = row.name
+    if row.address is not None:
+        merged["address"] = row.address
+    if row.phone is not None:
+        merged["phone"] = row.phone
+    if row.bank_name is not None:
+        merged["bank_name"] = row.bank_name
+    if row.bank_account is not None:
+        merged["bank_account"] = row.bank_account
+    if row.bank_sort is not None:
+        merged["bank_sort"] = row.bank_sort
+    if row.payment_terms is not None:
+        merged["payment_terms"] = row.payment_terms
+    if row.app_title is not None:
+        merged["app_title"] = row.app_title
+    return _finalize_company(merged)
 
 
 def _database_uri():
@@ -135,11 +223,13 @@ class Invoice(db.Model):
     vat_applies = db.Column(db.Boolean, nullable=False, default=False)
     vat_rate_percent = db.Column(db.Float, nullable=True)
     vat_amount = db.Column(db.Float, nullable=False, default=0.0)
+    currency = db.Column(db.String(3), nullable=False, default=DEFAULT_CURRENCY)
+    job_description = db.Column(db.Text, nullable=True)
 
 
 class InvoiceItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    description = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=False)
     amount = db.Column(db.Float, nullable=False)
     invoice_id = db.Column(db.Integer, db.ForeignKey("invoice.id"), nullable=False)
 
@@ -156,13 +246,15 @@ class Quote(db.Model):
     vat_applies = db.Column(db.Boolean, nullable=False, default=False)
     vat_rate_percent = db.Column(db.Float, nullable=True)
     vat_amount = db.Column(db.Float, nullable=False, default=0.0)
+    currency = db.Column(db.String(3), nullable=False, default=DEFAULT_CURRENCY)
+    job_description = db.Column(db.Text, nullable=True)
     converted_invoice_id = db.Column(db.Integer, db.ForeignKey("invoice.id"), nullable=True)
     converted_invoice = db.relationship("Invoice", foreign_keys=[converted_invoice_id])
 
 
 class QuoteItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    description = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=False)
     amount = db.Column(db.Float, nullable=False)
     quote_id = db.Column(db.Integer, db.ForeignKey("quote.id"), nullable=False)
 
@@ -171,6 +263,18 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
+
+
+class CompanySettings(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=True)
+    address = db.Column(db.Text, nullable=True)
+    phone = db.Column(db.String(80), nullable=True)
+    bank_name = db.Column(db.String(200), nullable=True)
+    bank_account = db.Column(db.String(80), nullable=True)
+    bank_sort = db.Column(db.String(40), nullable=True)
+    payment_terms = db.Column(db.Text, nullable=True)
+    app_title = db.Column(db.String(200), nullable=True)
 
 
 def _auth_enabled() -> bool:
@@ -240,6 +344,55 @@ def _ensure_quote_converted_column():
         app.logger.warning("Could not ensure quote converted column: %s", e)
 
 
+def _ensure_currency_and_job_columns():
+    """Add currency and job_description to existing invoice/quote tables."""
+    try:
+        insp = inspect(db.engine)
+        tables = insp.get_table_names()
+        dialect_default = "VARCHAR(3) NOT NULL DEFAULT 'GBP'"
+        for table in ("invoice", "quote"):
+            if table not in tables:
+                continue
+            cols = {c["name"] for c in insp.get_columns(table)}
+            alters = []
+            if "currency" not in cols:
+                alters.append(f"ALTER TABLE {table} ADD COLUMN currency {dialect_default}")
+            if "job_description" not in cols:
+                alters.append(f"ALTER TABLE {table} ADD COLUMN job_description TEXT")
+            for stmt in alters:
+                with db.engine.begin() as conn:
+                    conn.execute(text(stmt))
+        dialect = db.engine.dialect.name
+        if dialect != "sqlite":
+            for item_table in ("invoice_item", "quote_item"):
+                if item_table not in tables:
+                    continue
+                with db.engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE {item_table} ALTER COLUMN description TYPE TEXT"
+                        )
+                    )
+    except Exception as e:
+        app.logger.warning("Could not ensure currency/job columns: %s", e)
+
+
+def _new_currency_bucket():
+    return {"count": 0, "owed_total": 0.0, "paid_total": 0.0}
+
+
+def _finalize_currency_map(raw):
+    out = {}
+    for code in sorted(raw.keys()):
+        bucket = raw[code]
+        out[code] = {
+            "count": bucket["count"],
+            "owed_total": round(bucket["owed_total"], 2),
+            "paid_total": round(bucket["paid_total"], 2),
+        }
+    return out
+
+
 def _calendar_week_range(now=None):
     """Monday 00:00 UTC through the following Monday 00:00 UTC (end exclusive)."""
     now = now or datetime.utcnow()
@@ -284,8 +437,19 @@ def _build_period_summary(start, end):
         .order_by(Invoice.date.desc())
         .all()
     )
-    paid_total = sum(float(inv.total_amount or 0) for inv in invoices if inv.paid)
-    owed_total = sum(float(inv.total_amount or 0) for inv in invoices if not inv.paid)
+    paid_total = 0.0
+    owed_total = 0.0
+    inv_by = defaultdict(_new_currency_bucket)
+    for inv in invoices:
+        amount = float(inv.total_amount or 0)
+        code = (getattr(inv, "currency", None) or DEFAULT_CURRENCY).upper()
+        inv_by[code]["count"] += 1
+        if inv.paid:
+            paid_total += amount
+            inv_by[code]["paid_total"] += amount
+        else:
+            owed_total += amount
+            inv_by[code]["owed_total"] += amount
 
     quotes = (
         Quote.query.filter(Quote.date >= start, Quote.date < end)
@@ -294,18 +458,24 @@ def _build_period_summary(start, end):
     )
     quote_owed_total = 0.0
     quote_paid_total = 0.0
+    quote_by = defaultdict(_new_currency_bucket)
     for quote in quotes:
         amount = float(quote.total_amount or 0)
+        code = (getattr(quote, "currency", None) or DEFAULT_CURRENCY).upper()
+        quote_by[code]["count"] += 1
         if quote.converted_invoice_id:
             inv = quote.converted_invoice or db.session.get(
                 Invoice, quote.converted_invoice_id
             )
             if inv and inv.paid:
                 quote_paid_total += amount
+                quote_by[code]["paid_total"] += amount
             else:
                 quote_owed_total += amount
+                quote_by[code]["owed_total"] += amount
         else:
             quote_owed_total += amount
+            quote_by[code]["owed_total"] += amount
 
     end_inclusive = end - timedelta(seconds=1)
     return {
@@ -315,11 +485,13 @@ def _build_period_summary(start, end):
             "count": len(invoices),
             "owed_total": round(owed_total, 2),
             "paid_total": round(paid_total, 2),
+            "by_currency": _finalize_currency_map(inv_by),
         },
         "quotes": {
             "count": len(quotes),
             "owed_total": round(quote_owed_total, 2),
             "paid_total": round(quote_paid_total, 2),
+            "by_currency": _finalize_currency_map(quote_by),
         },
     }
 
@@ -344,6 +516,7 @@ def _vat_amount_and_total(net_subtotal: float, vat_applies: bool, vat_rate_perce
 
 def _invoice_dict(inv: Invoice):
     subtotal = _net_subtotal_from_items(inv.items)
+    currency = (getattr(inv, "currency", None) or DEFAULT_CURRENCY).upper()
     return {
         "id": inv.id,
         "invoice_number": inv.invoice_number,
@@ -358,11 +531,15 @@ def _invoice_dict(inv: Invoice):
         "vat_amount": float(inv.vat_amount or 0.0),
         "total_amount": inv.total_amount,
         "paid": inv.paid,
+        "currency": currency,
+        "currency_symbol": _currency_symbol(currency),
+        "job_description": getattr(inv, "job_description", None) or "",
     }
 
 
 def _quote_dict(quote: Quote):
     subtotal = _net_subtotal_from_items(quote.items)
+    currency = (getattr(quote, "currency", None) or DEFAULT_CURRENCY).upper()
     return {
         "id": quote.id,
         "quote_number": quote.quote_number,
@@ -376,6 +553,10 @@ def _quote_dict(quote: Quote):
         "vat_rate_percent": quote.vat_rate_percent,
         "vat_amount": float(quote.vat_amount or 0.0),
         "total_amount": quote.total_amount,
+        "currency": currency,
+        "currency_symbol": _currency_symbol(currency),
+        "job_description": getattr(quote, "job_description", None) or "",
+        "converted_invoice_id": quote.converted_invoice_id,
     }
 
 
@@ -557,7 +738,7 @@ def health():
 def inject_company():
     company = _company_config()
     company["logo_path"] = _company_logo_url(company["logo_file"])
-    return {"company": company}
+    return {"company": company, "currencies": CURRENCIES}
 
 
 @app.before_request
@@ -630,12 +811,9 @@ def api_reports():
     unpaid_total = total_invoiced - paid_total
     end_inclusive = end - timedelta(seconds=1)
 
-    quote_rows = (
-        Quote.query.filter(Quote.date >= start, Quote.date < end)
-        .order_by(Quote.date.desc())
-        .all()
-    )
-    quote_summary = _build_period_summary(start, end)["quotes"]
+    period_summary = _build_period_summary(start, end)
+    quote_summary = period_summary["quotes"]
+    invoice_summary = period_summary["invoices"]
 
     return jsonify(
         {
@@ -649,6 +827,8 @@ def api_reports():
             "quote_count": quote_summary["count"],
             "quote_owed_total": quote_summary["owed_total"],
             "quote_paid_total": quote_summary["paid_total"],
+            "invoices_by_currency": invoice_summary.get("by_currency") or {},
+            "quotes_by_currency": quote_summary.get("by_currency") or {},
             "invoices": [
                 {
                     "id": inv.id,
@@ -657,6 +837,7 @@ def api_reports():
                     "client_name": inv.client.name,
                     "total_amount": inv.total_amount,
                     "paid": inv.paid,
+                    "currency": (getattr(inv, "currency", None) or DEFAULT_CURRENCY),
                 }
                 for inv in rows
             ],
@@ -707,6 +888,11 @@ def handle_invoices():
         if vat_err:
             return jsonify({"error": vat_err}), 400
 
+        currency, currency_err = _parse_currency(data)
+        if currency_err:
+            return jsonify({"error": currency_err}), 400
+        job_description, _ = _parse_job_description(data, required_key=True)
+
         inv_number, num_err = _resolve_new_invoice_number(
             client, data.get("invoice_number")
         )
@@ -719,6 +905,8 @@ def handle_invoices():
             date=datetime.utcnow(),
             vat_applies=vat_applies,
             vat_rate_percent=vat_rate if vat_applies else None,
+            currency=currency,
+            job_description=job_description or None,
         )
 
         for item_data in data.get("items", []):
@@ -786,6 +974,15 @@ def handle_invoice(invoice_id):
             return jsonify({"error": vat_err}), 400
         invoice.vat_applies = vat_applies
         invoice.vat_rate_percent = vat_rate if vat_applies else None
+
+        if "currency" in data:
+            currency, currency_err = _parse_currency(data)
+            if currency_err:
+                return jsonify({"error": currency_err}), 400
+            invoice.currency = currency
+        if "job_description" in data:
+            job_description, _ = _parse_job_description(data)
+            invoice.job_description = job_description or None
 
         parsed_items, items_err = _parse_line_items(data.get("items"))
         if items_err:
@@ -893,6 +1090,7 @@ def send_invoice_email(invoice_id):
             message=message or None,
             logo_url=logo_url,
             subtotal_net=_net_subtotal_from_items(invoice.items),
+            currency_symbol=_currency_symbol(invoice.currency),
         )
         params = {
             "from": from_email,
@@ -927,6 +1125,8 @@ def duplicate_invoice(invoice_id):
         paid=False,
         vat_applies=vat_applies,
         vat_rate_percent=vat_rate if vat_applies else None,
+        currency=invoice.currency or DEFAULT_CURRENCY,
+        job_description=invoice.job_description,
     )
 
     for item in invoice.items:
@@ -962,12 +1162,19 @@ def handle_quotes():
         if vat_err:
             return jsonify({"error": vat_err}), 400
 
+        currency, currency_err = _parse_currency(data)
+        if currency_err:
+            return jsonify({"error": currency_err}), 400
+        job_description, _ = _parse_job_description(data, required_key=True)
+
         new_quote = Quote(
             quote_number=generate_quote_number(client),
             client_id=client.id,
             date=datetime.utcnow(),
             vat_applies=vat_applies,
             vat_rate_percent=vat_rate if vat_applies else None,
+            currency=currency,
+            job_description=job_description or None,
         )
 
         for item_data in data.get("items", []):
@@ -1036,6 +1243,15 @@ def handle_quote(quote_id):
             return jsonify({"error": vat_err}), 400
         quote.vat_applies = vat_applies
         quote.vat_rate_percent = vat_rate if vat_applies else None
+
+        if "currency" in data:
+            currency, currency_err = _parse_currency(data)
+            if currency_err:
+                return jsonify({"error": currency_err}), 400
+            quote.currency = currency
+        if "job_description" in data:
+            job_description, _ = _parse_job_description(data)
+            quote.job_description = job_description or None
 
         parsed_items, items_err = _parse_line_items(data.get("items"))
         if items_err:
@@ -1108,6 +1324,7 @@ def send_quote_email(quote_id):
             message=message or None,
             logo_url=logo_url,
             subtotal_net=_net_subtotal_from_items(quote.items),
+            currency_symbol=_currency_symbol(quote.currency),
         )
         params = {
             "from": from_email,
@@ -1141,6 +1358,8 @@ def duplicate_quote(quote_id):
         date=datetime.utcnow(),
         vat_applies=vat_applies,
         vat_rate_percent=vat_rate if vat_applies else None,
+        currency=quote.currency or DEFAULT_CURRENCY,
+        job_description=quote.job_description,
     )
 
     for item in quote.items:
@@ -1191,6 +1410,8 @@ def convert_quote_to_invoice(quote_id):
         paid=False,
         vat_applies=vat_applies,
         vat_rate_percent=vat_rate if vat_applies else None,
+        currency=quote.currency or DEFAULT_CURRENCY,
+        job_description=quote.job_description,
     )
 
     for item in quote.items:
@@ -1218,11 +1439,55 @@ def convert_quote_to_invoice(quote_id):
     )
 
 
+def _settings_json():
+    company = _company_config()
+    company["logo_path"] = _company_logo_url(company["logo_file"])
+    return company
+
+
+@app.route("/api/settings", methods=["GET", "PUT"])
+def handle_settings():
+    if request.method == "GET":
+        return jsonify(_settings_json())
+
+    data = request.json or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Business name is required"}), 400
+
+    address = (data.get("address") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    bank_name = (data.get("bank_name") or "").strip() or name
+    bank_account = (data.get("bank_account") or "").strip()
+    bank_sort = (data.get("bank_sort") or "").strip()
+    payment_terms = (data.get("payment_terms") or "").strip() or (
+        "Payment is due on receipt of invoice"
+    )
+    app_title = (data.get("app_title") or "").strip() or "Invoices & quotes"
+
+    row = CompanySettings.query.order_by(CompanySettings.id.asc()).first()
+    if not row:
+        row = CompanySettings()
+        db.session.add(row)
+
+    row.name = name
+    row.address = address
+    row.phone = phone
+    row.bank_name = bank_name
+    row.bank_account = bank_account
+    row.bank_sort = bank_sort
+    row.payment_terms = payment_terms
+    row.app_title = app_title
+    db.session.commit()
+    return jsonify(_settings_json())
+
+
 # Ensure tables exist (Railway runs gunicorn, not run.py — create_all is idempotent)
 with app.app_context():
     db.create_all()
     _ensure_invoice_vat_columns()
     _ensure_quote_converted_column()
+    _ensure_currency_and_job_columns()
     _bootstrap_auth_user()
 
 
