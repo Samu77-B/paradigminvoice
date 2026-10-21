@@ -852,17 +852,44 @@ def api_reports():
 def handle_clients():
     if request.method == "POST":
         data = request.json or {}
+        name = (data.get("name") or "").strip()
+        email = (data.get("email") or "").strip()
+        if not name or not email:
+            return jsonify({"error": "Name and email are required"}), 400
         new_client = Client(
-            name=data["name"],
-            email=data["email"],
-            address=data.get("address", "") or "",
+            name=name,
+            email=email,
+            address=(data.get("address") or "").strip(),
         )
         db.session.add(new_client)
         db.session.commit()
         return jsonify({"id": new_client.id, "message": "Client created successfully"})
 
-    clients = Client.query.all()
+    clients = Client.query.order_by(Client.name.asc()).all()
     return jsonify([_client_json(c) for c in clients])
+
+
+@app.route("/api/clients/<int:client_id>", methods=["GET", "PUT"])
+def handle_client(client_id):
+    """Update client details only. Quotes and invoices stay linked by client_id."""
+    client = db.session.get(Client, client_id)
+    if not client:
+        return jsonify({"error": "Not found"}), 404
+
+    if request.method == "GET":
+        return jsonify(_client_json(client))
+
+    data = request.json or {}
+    name = (data.get("name") or "").strip()
+    email = (data.get("email") or "").strip()
+    if not name or not email:
+        return jsonify({"error": "Name and email are required"}), 400
+
+    client.name = name
+    client.email = email
+    client.address = (data.get("address") or "").strip()
+    db.session.commit()
+    return jsonify({"id": client.id, "message": "Client updated successfully", **_client_json(client)})
 
 
 @app.route("/api/clients/<int:client_id>/next-invoice-number")

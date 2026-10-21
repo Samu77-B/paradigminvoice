@@ -1,6 +1,7 @@
 let previewInvoiceId = null;
 let previewQuoteId = null;
 let allInvoices = [];
+let allClients = [];
 let invoicePaidFilter = 'unpaid';
 let activeSection = 'invoices';
 let summaryPeriod = 'month';
@@ -150,6 +151,13 @@ document.addEventListener('DOMContentLoaded', () => {
   if (settingsModal) {
     settingsModal.addEventListener('shown.bs.modal', () => {
       loadSettingsForm();
+    });
+  }
+
+  const clientsModal = document.getElementById('clientsModal');
+  if (clientsModal) {
+    clientsModal.addEventListener('shown.bs.modal', () => {
+      loadClients();
     });
   }
 });
@@ -444,7 +452,7 @@ async function loadClients() {
   try {
     const response = await apiFetch('/api/clients');
     if (!response.ok) throw new Error('Failed to load clients');
-    const clients = await response.json();
+    allClients = await response.json();
 
     const selects = [
       document.querySelector('#invoiceForm select[name="client_id"]'),
@@ -452,16 +460,117 @@ async function loadClients() {
     ].filter(Boolean);
 
     selects.forEach((clientSelect) => {
+      const previous = clientSelect.value;
       clientSelect.innerHTML = '<option value="">Select a client…</option>';
-      clients.forEach((client) => {
+      allClients.forEach((client) => {
         const option = document.createElement('option');
         option.value = client.id;
         option.textContent = client.name;
         clientSelect.appendChild(option);
       });
+      if (previous) clientSelect.value = previous;
     });
+
+    renderClientsList();
   } catch (error) {
     showError('Failed to load clients: ' + error.message);
+  }
+}
+
+function renderClientsList() {
+  const list = document.getElementById('clientsList');
+  if (!list) return;
+  list.innerHTML = '';
+
+  if (!allClients.length) {
+    list.innerHTML = '<div class="empty-state">No clients yet. Add one with New client.</div>';
+    return;
+  }
+
+  allClients.forEach((client) => {
+    const addr = (client.address || '').trim();
+    const item = document.createElement('div');
+    item.className = 'invoice-card';
+    item.innerHTML = `
+                <div class="invoice-card-main">
+                    <p class="invoice-card-title">${escapeHtml(client.name)}</p>
+                    <p class="invoice-card-meta">${escapeHtml(client.email)}</p>
+                    ${addr ? `<p class="invoice-card-meta">${escapeHtml(addr)}</p>` : ''}
+                </div>
+                <div class="invoice-card-actions">
+                    <button type="button" class="btn-apple-icon" title="Edit" aria-label="Edit client" onclick="openEditClient(${client.id})">
+                        <i class="fas fa-pen"></i>
+                    </button>
+                </div>
+            `;
+    list.appendChild(item);
+  });
+}
+
+async function openEditClient(clientId) {
+  try {
+    let client = allClients.find((c) => c.id === clientId);
+    if (!client) {
+      const response = await apiFetch(`/api/clients/${clientId}`);
+      if (!response.ok) throw new Error('Failed to load client');
+      client = await response.json();
+    }
+
+    document.getElementById('editClientId').value = client.id;
+    document.getElementById('editClientName').value = client.name || '';
+    document.getElementById('editClientEmail').value = client.email || '';
+    document.getElementById('editClientAddress').value = client.address || '';
+
+    const clientsModal = document.getElementById('clientsModal');
+    const clientsInstance = clientsModal ? bootstrap.Modal.getInstance(clientsModal) : null;
+    if (clientsInstance) clientsInstance.hide();
+
+    const modal = new bootstrap.Modal(document.getElementById('editClientModal'));
+    modal.show();
+  } catch (error) {
+    showError('Failed to open client: ' + error.message);
+  }
+}
+
+async function updateClient() {
+  try {
+    const form = document.getElementById('editClientForm');
+    if (form && !form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+
+    const clientId = document.getElementById('editClientId')?.value;
+    const name = document.getElementById('editClientName')?.value.trim() || '';
+    const email = document.getElementById('editClientEmail')?.value.trim() || '';
+    const address = document.getElementById('editClientAddress')?.value.trim() || '';
+
+    if (!clientId) {
+      showError('Client not found');
+      return;
+    }
+    if (!name || !email) {
+      showError('Name and email are required');
+      return;
+    }
+
+    const response = await apiFetch(`/api/clients/${clientId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, address }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to update client');
+    }
+
+    showSuccess('Client updated successfully');
+    bootstrap.Modal.getInstance(document.getElementById('editClientModal'))?.hide();
+    await loadClients();
+    loadInvoices();
+    loadQuotes();
+  } catch (error) {
+    showError('Failed to update client: ' + error.message);
   }
 }
 
