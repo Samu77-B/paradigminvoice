@@ -245,7 +245,18 @@ body.app-body {
 }
 
 .btn-apple-secondary {
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.88);
+  color: #0b0f0d;
+}
+
+.btn-apple-secondary:hover {
+  background: #fff;
+  color: #0b0f0d;
+}
+
+a.btn-apple-secondary {
+  color: #0b0f0d;
+  text-decoration: none;
 }
 
 .btn-apple-ghost {
