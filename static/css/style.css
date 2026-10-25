@@ -52,9 +52,9 @@ body.app-body {
   margin: 0 auto;
   padding: 14px 16px;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
 }
 
 .app-brand-title {
@@ -72,7 +72,31 @@ body.app-body {
 .app-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
+  align-items: center;
+}
+
+.app-actions .btn-apple {
+  flex: 0 0 auto;
+}
+
+@media (min-width: 900px) {
+  .app-header-inner {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .app-brand {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  .app-actions {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+  }
 }
 
 /* Main */
@@ -132,6 +156,7 @@ body.app-body {
 .summary-range {
   margin: 0 0 10px 0;
   font-size: 13px;
+  color: rgba(226, 232, 240, 0.78);
 }
 
 .summary-stats {
