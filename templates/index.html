@@ -304,10 +304,16 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
         <div class="modal-body">
-          <div class="btn-group mb-3" role="group" aria-label="Report period">
-            <button type="button" class="btn-apple btn-apple-secondary" id="reportWeekBtn" onclick="loadReport('week')">This week</button>
-            <button type="button" class="btn-apple btn-apple-primary" id="reportMonthBtn" onclick="loadReport('month')">This month</button>
-            <button type="button" class="btn-apple btn-apple-secondary" id="reportYearBtn" onclick="loadReport('year')">This year</button>
+          <div class="reports-toolbar mb-3">
+            <div class="btn-group" role="group" aria-label="Report period">
+              <button type="button" class="btn-apple btn-apple-secondary" id="reportWeekBtn" onclick="loadReport('week')">This week</button>
+              <button type="button" class="btn-apple btn-apple-primary" id="reportMonthBtn" onclick="loadReport('month')">This month</button>
+              <button type="button" class="btn-apple btn-apple-secondary" id="reportYearBtn" onclick="loadReport('year')">This year</button>
+            </div>
+            <button type="button" class="btn-apple btn-apple-primary" id="btnDownloadReportPdf" onclick="downloadReportPDF()">
+              <i class="fas fa-file-pdf"></i>
+              <span>Download PDF</span>
+            </button>
           </div>
           <div id="reportsContent">
             <p class="text-muted mb-0">Choose a period to load totals and invoice list (calendar week from Monday, calendar month in UTC).</p>

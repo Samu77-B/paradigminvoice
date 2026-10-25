@@ -1032,11 +1032,96 @@ body {
   font-size: 14px;
 }
 
+.reports-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .reports-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
+}
+
+.report-print-inner {
+  color: #111;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  padding: 8px;
+}
+
+.report-print-inner h1 {
+  font-size: 22px;
+  margin: 0 0 8px 0;
+}
+
+.report-print-inner h2 {
+  font-size: 16px;
+  margin: 18px 0 8px 0;
+}
+
+.report-print-meta {
+  margin: 0 0 12px 0;
+  color: #444;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.report-print-stats {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 8px;
+}
+
+.report-print-stats td {
+  border: 1px solid #ccc;
+  padding: 10px 12px;
+  vertical-align: top;
+  width: 25%;
+}
+
+.report-print-stats .label {
+  font-size: 12px;
+  color: #555;
+}
+
+.report-print-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.report-print-table th,
+.report-print-table td {
+  border: 1px solid #ccc;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.report-print-table th {
+  background: #f3f3f3;
+}
+
+.report-print-table .amt,
+.report-print-stats .amt {
+  text-align: right;
+}
+
+@media print {
+  .report-print,
+  .report-print * {
+    color: #111 !important;
+    background: white !important;
+  }
+
+  .report-print-table th {
+    background: #f3f3f3 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
 }
 
 .reports-stat {

@@ -5,6 +5,7 @@ let allClients = [];
 let invoicePaidFilter = 'unpaid';
 let activeSection = 'invoices';
 let summaryPeriod = 'month';
+let lastReportData = null;
 
 function companyAddressHtml() {
   const c = window.APP_COMPANY || {};
@@ -392,15 +393,26 @@ function setReportPeriodUI(period) {
   y.classList.toggle('btn-apple-secondary', period !== 'year');
 }
 
+function reportInvoiceTotalsMap(data) {
+  return Object.fromEntries(
+    Object.entries(data.invoices_by_currency || {}).map(([code, row]) => [
+      code,
+      { total: (Number(row.owed_total) || 0) + (Number(row.paid_total) || 0) },
+    ])
+  );
+}
+
 async function loadReport(period) {
   setReportPeriodUI(period);
   const el = document.getElementById('reportsContent');
   if (!el) return;
+  lastReportData = null;
   el.innerHTML = '<p class="text-muted mb-0">Loading…</p>';
   try {
     const response = await apiFetch(`/api/reports?period=${encodeURIComponent(period)}`);
     if (!response.ok) throw new Error('Failed to load report');
     const data = await response.json();
+    lastReportData = data;
     const rowsHtml = (data.invoices || [])
       .map(
         (inv) => `
@@ -414,19 +426,14 @@ async function loadReport(period) {
       )
       .join('');
     el.innerHTML = `
-      <p class="text-muted mb-3" style="font-size: 13px;">${escapeHtml(data.range_start)} – ${escapeHtml(data.range_end)} · UTC calendar ${escapeHtml(data.period)}</p>
+      <p class="text-muted mb-3" style="font-size: 13px;">${escapeHtml(formatUkDate(data.range_start))} – ${escapeHtml(formatUkDate(data.range_end))} · UTC calendar ${escapeHtml(data.period)}</p>
       <h6 class="mb-2">Invoices</h6>
       <div class="reports-summary">
         <div class="reports-stat"><p class="label">Invoices</p><p class="value">${data.invoice_count}</p></div>
         <div class="reports-stat"><p class="label">Owed</p><p class="value">${formatTotalsByCurrency(data.invoices_by_currency, 'owed_total', data.unpaid_total)}</p></div>
         <div class="reports-stat"><p class="label">Paid</p><p class="value">${formatTotalsByCurrency(data.invoices_by_currency, 'paid_total', data.paid_total)}</p></div>
         <div class="reports-stat"><p class="label">Total invoiced</p><p class="value">${formatTotalsByCurrency(
-          Object.fromEntries(
-            Object.entries(data.invoices_by_currency || {}).map(([code, row]) => [
-              code,
-              { total: (Number(row.owed_total) || 0) + (Number(row.paid_total) || 0) },
-            ])
-          ),
+          reportInvoiceTotalsMap(data),
           'total',
           data.total_invoiced
         )}</p></div>
@@ -444,8 +451,75 @@ async function loadReport(period) {
         </table>
       </div>`;
   } catch (e) {
+    lastReportData = null;
     el.innerHTML = `<p class="text-danger mb-0">${escapeHtml(e.message || 'Failed to load report')}</p>`;
   }
+}
+
+function downloadReportPDF() {
+  if (!lastReportData) {
+    showError('Load a report period first');
+    return;
+  }
+
+  const data = lastReportData;
+  const company = window.APP_COMPANY || {};
+  const periodLabel =
+    data.period === 'week' ? 'This week' : data.period === 'year' ? 'This year' : 'This month';
+  const rowsHtml = (data.invoices || [])
+    .map(
+      (inv) => `
+      <tr>
+        <td>${escapeHtml(inv.invoice_number)}</td>
+        <td>${escapeHtml(formatUkDate(inv.date))}</td>
+        <td>${escapeHtml(inv.client_name)}</td>
+        <td class="amt">${formatMoney(inv.total_amount, inv.currency)}</td>
+        <td>${inv.paid ? 'Paid' : 'Unpaid'}</td>
+      </tr>`
+    )
+    .join('');
+
+  const printContainer = document.createElement('div');
+  printContainer.className = 'print-container report-print';
+  printContainer.innerHTML = `
+    <div class="report-print-inner">
+      <h1>Report — ${escapeHtml(periodLabel)}</h1>
+      <p class="report-print-meta">${escapeHtml(company.name || '')}<br>
+      ${escapeHtml(formatUkDate(data.range_start))} – ${escapeHtml(formatUkDate(data.range_end))} · UTC calendar ${escapeHtml(data.period)}</p>
+      <h2>Invoices</h2>
+      <table class="report-print-stats">
+        <tr>
+          <td><span class="label">Invoices</span><br><strong>${data.invoice_count}</strong></td>
+          <td><span class="label">Owed</span><br><strong>${formatTotalsByCurrency(data.invoices_by_currency, 'owed_total', data.unpaid_total)}</strong></td>
+          <td><span class="label">Paid</span><br><strong>${formatTotalsByCurrency(data.invoices_by_currency, 'paid_total', data.paid_total)}</strong></td>
+          <td><span class="label">Total invoiced</span><br><strong>${formatTotalsByCurrency(reportInvoiceTotalsMap(data), 'total', data.total_invoiced)}</strong></td>
+        </tr>
+      </table>
+      <h2>Quotes</h2>
+      <table class="report-print-stats">
+        <tr>
+          <td><span class="label">Quotes</span><br><strong>${data.quote_count ?? 0}</strong></td>
+          <td><span class="label">Outstanding</span><br><strong>${formatTotalsByCurrency(data.quotes_by_currency, 'owed_total', data.quote_owed_total)}</strong></td>
+          <td><span class="label">Paid (via invoice)</span><br><strong>${formatTotalsByCurrency(data.quotes_by_currency, 'paid_total', data.quote_paid_total)}</strong></td>
+        </tr>
+      </table>
+      <h2>Invoice list</h2>
+      <table class="report-print-table">
+        <thead>
+          <tr><th>Invoice</th><th>Date</th><th>Client</th><th class="amt">Total</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          ${rowsHtml || '<tr><td colspan="5">No invoices in this period.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  document.body.appendChild(printContainer);
+  setTimeout(() => {
+    window.print();
+    document.body.removeChild(printContainer);
+  }, 200);
 }
 
 async function loadClients() {
