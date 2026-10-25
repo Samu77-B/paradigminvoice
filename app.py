@@ -6,6 +6,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 from collections import defaultdict
 from sqlalchemy import inspect, text
+import hmac
 import os
 import re
 
@@ -737,6 +738,93 @@ def health():
     return jsonify({"status": "ok"}), 200
 
 
+@app.route("/api/hub/summary")
+def hub_summary():
+    if not _hub_token_configured():
+        return jsonify({"error": "HUB_API_TOKEN is not configured"}), 503
+    if not _hub_token_ok():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    period, start, end = _period_range("month")
+    invoices = Invoice.query.all()
+    unpaid = [inv for inv in invoices if not inv.paid]
+    owed = round(sum(float(inv.total_amount or 0) for inv in unpaid), 2)
+    in_period = [inv for inv in invoices if inv.date and start <= inv.date < end]
+    paid = round(
+        sum(float(inv.total_amount or 0) for inv in in_period if inv.paid), 2
+    )
+    return jsonify(
+        {
+            "owed": owed,
+            "paid": paid,
+            "unpaidCount": len(unpaid),
+            "invoicesInPeriod": len(in_period),
+            "period": period,
+        }
+    )
+
+
+@app.route("/api/hub/clients")
+def hub_clients():
+    if not _hub_token_configured():
+        return jsonify({"error": "HUB_API_TOKEN is not configured"}), 503
+    if not _hub_token_ok():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    clients = Client.query.order_by(Client.name.asc()).all()
+    unpaid_by_client = defaultdict(float)
+    for inv in Invoice.query.filter_by(paid=False).all():
+        unpaid_by_client[inv.client_id] += float(inv.total_amount or 0)
+
+    return jsonify(
+        {
+            "clients": [
+                {
+                    "id": _hub_client_id(client),
+                    "name": client.name,
+                    "unpaidTotal": round(unpaid_by_client.get(client.id, 0.0), 2),
+                }
+                for client in clients
+            ]
+        }
+    )
+
+
+@app.route("/api/hub/invoices")
+def hub_invoices():
+    if not _hub_token_configured():
+        return jsonify({"error": "HUB_API_TOKEN is not configured"}), 503
+    if not _hub_token_ok():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    client_id = (request.args.get("clientId") or "").strip()
+    query = Invoice.query.order_by(Invoice.date.desc())
+    if client_id:
+        try:
+            cid = int(client_id)
+        except ValueError:
+            return jsonify({"invoices": []})
+        query = query.filter(Invoice.client_id == cid)
+
+    rows = query.all()
+    return jsonify(
+        {
+            "invoices": [
+                {
+                    "id": str(inv.id),
+                    "number": inv.invoice_number,
+                    "clientId": _hub_client_id(inv.client) if inv.client else "",
+                    "clientName": inv.client.name if inv.client else "",
+                    "amount": round(float(inv.total_amount or 0), 2),
+                    "status": "paid" if inv.paid else "unpaid",
+                    "date": inv.date.strftime("%Y-%m-%d") if inv.date else "",
+                }
+                for inv in rows
+            ]
+        }
+    )
+
+
 @app.context_processor
 def inject_company():
     company = _company_config()
@@ -744,8 +832,31 @@ def inject_company():
     return {"company": company, "currencies": CURRENCIES}
 
 
+def _hub_token_configured() -> bool:
+    return bool((os.environ.get("HUB_API_TOKEN") or "").strip())
+
+
+def _hub_token_ok() -> bool:
+    expected = (os.environ.get("HUB_API_TOKEN") or "").strip()
+    if not expected:
+        return False
+    header = request.headers.get("Authorization") or ""
+    token = header[7:].strip() if header.startswith("Bearer ") else ""
+    if not token:
+        return False
+    return hmac.compare_digest(token, expected)
+
+
+def _hub_client_id(client: Client) -> str:
+    """Stable id for hub linking (store this as invoiceClientId in the hub)."""
+    return str(client.id)
+
+
 @app.before_request
 def _require_login():
+    # Hub read API uses Bearer HUB_API_TOKEN instead of session login.
+    if request.path.startswith("/api/hub/"):
+        return None
     if not _auth_enabled():
         return None
     if request.endpoint in (None, "static", "health", "login", "logout"):
